@@ -10,9 +10,8 @@ from nonebot.drivers.fastapi import Driver as FastAPIDriver
 from starlette.middleware.sessions import SessionMiddleware
 
 from src.admin.routes import router as admin_router
-from src.infrastructure.settings.container import build_container
+from src.infrastructure.settings.container import ensure_container
 from src.infrastructure.settings.loader import load_settings
-from src.plugins.scheduler import register_jobs
 
 
 settings = load_settings()
@@ -37,6 +36,7 @@ if not isinstance(driver, FastAPIDriver):
     raise RuntimeError("FastAPI driver is required.")
 
 app = driver.server_app
+app.state.settings = settings
 app.add_middleware(SessionMiddleware, secret_key=settings.runtime.secret_key)
 app.include_router(admin_router)
 app.mount("/admin/static", StaticFiles(directory=str(settings.static_dir)), name="admin-static")
@@ -47,7 +47,9 @@ load_plugin("src.plugins.commands")
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    await build_container(settings)
+    from src.plugins.scheduler import register_jobs
+
+    await ensure_container(settings)
     register_jobs()
 
 
@@ -57,4 +59,3 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-

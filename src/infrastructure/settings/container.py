@@ -135,6 +135,12 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
     return container
 
 
+async def ensure_container(settings: EffectiveSettings) -> ServiceContainer:
+    if _container is not None:
+        return _container
+    return await build_container(settings)
+
+
 def set_container(container: ServiceContainer) -> None:
     global _container
     _container = container

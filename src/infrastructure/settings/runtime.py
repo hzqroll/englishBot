@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
@@ -13,9 +13,7 @@ from src.infrastructure.settings.models import EffectiveSettings
 class RuntimeConfigService:
     settings: EffectiveSettings
     learning_repo: LearningRepository
-
-    def __post_init__(self) -> None:
-        self._cache: dict[str, Any] = {}
+    _cache: dict[str, Any] = field(default_factory=dict, init=False)
 
     async def refresh(self) -> None:
         rows = await self.learning_repo.list_runtime_settings()

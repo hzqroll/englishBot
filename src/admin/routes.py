@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.infrastructure.auth.security import verify_password
-from src.infrastructure.settings.container import get_container
+from src.infrastructure.settings.container import ensure_container
 
 
 router = APIRouter()
@@ -16,6 +16,11 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "tem
 
 def _current_admin(request: Request) -> str | None:
     return request.session.get("admin_username")
+
+
+async def _container(request: Request):
+    settings = request.app.state.settings
+    return await ensure_container(settings)
 
 
 @router.get("/healthz")
@@ -30,17 +35,18 @@ async def readyz() -> dict[str, str]:
 
 @router.get("/admin/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
 @router.post("/admin/login", response_class=HTMLResponse)
 async def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
-    container = get_container()
+    container = await _container(request)
     admin_user = await container.admin_repo.get_admin_user(username)
     if admin_user is None or not verify_password(password, admin_user.password_hash):
         return templates.TemplateResponse(
+            request,
             "login.html",
-            {"request": request, "error": "用户名或密码错误"},
+            {"error": "用户名或密码错误"},
             status_code=401,
         )
     request.session["admin_username"] = username
@@ -57,12 +63,12 @@ async def logout(request: Request):
 async def dashboard(request: Request):
     if not _current_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
-    container = get_container()
+    container = await _container(request)
     data = await container.admin_usecase.dashboard()
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         {
-            "request": request,
             "metrics": data["metrics"],
             "jobs": data["jobs"],
             "admin_username": _current_admin(request),
@@ -74,11 +80,12 @@ async def dashboard(request: Request):
 async def users_page(request: Request):
     if not _current_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
-    container = get_container()
+    container = await _container(request)
     users = await container.admin_usecase.list_users()
     return templates.TemplateResponse(
+        request,
         "users.html",
-        {"request": request, "users": users, "admin_username": _current_admin(request)},
+        {"users": users, "admin_username": _current_admin(request)},
     )
 
 
@@ -86,13 +93,13 @@ async def users_page(request: Request):
 async def settings_page(request: Request):
     if not _current_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
-    container = get_container()
+    container = await _container(request)
     settings = await container.admin_usecase.list_settings()
     effective_settings = await container.admin_usecase.effective_settings()
     return templates.TemplateResponse(
+        request,
         "settings.html",
         {
-            "request": request,
             "settings": settings,
             "effective_settings": effective_settings,
             "admin_username": _current_admin(request),
@@ -104,7 +111,7 @@ async def settings_page(request: Request):
 async def settings_submit(request: Request, key: str = Form(...), value: str = Form(...)):
     if not _current_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
-    container = get_container()
+    container = await _container(request)
     await container.admin_usecase.update_setting(key, value)
     from src.plugins.scheduler import register_jobs
 
