@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="header">
+  <div>
+    <h2>仪表盘</h2>
+    <p>当前管理员：{{ admin_username }}</p>
+  </div>
+</header>
+
+<section class="cards">
+  {% for key, value in metrics.items() %}
+  <article class="card">
+    <h3>{{ key }}</h3>
+    <strong>{{ value }}</strong>
+  </article>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h3>手动触发</h3>
+  <div class="trigger-grid">
+    <form method="post" action="/admin/triggers/daily_push">
+      <button type="submit">触发每日内容</button>
+    </form>
+    <form method="post" action="/admin/triggers/weekly_report">
+      <button type="submit">触发周报</button>
+    </form>
+    <form method="post" action="/admin/triggers/weekly_quiz">
+      <button type="submit">触发周测</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>最近任务执行</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>任务</th>
+        <th>业务键</th>
+        <th>状态</th>
+        <th>开始时间</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td>{{ job.job_name }}</td>
+        <td>{{ job.biz_key }}</td>
+        <td>{{ job.status }}</td>
+        <td>{{ job.started_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

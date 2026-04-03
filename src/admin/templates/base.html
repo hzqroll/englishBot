@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title or "English Bot Admin" }}</title>
+    <link rel="stylesheet" href="/admin/static/admin.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <h1>English Bot</h1>
+        <nav>
+          <a href="/admin">仪表盘</a>
+          <a href="/admin/users">用户</a>
+          <a href="/admin/settings">动态配置</a>
+          <a href="/admin/logout">退出</a>
+        </nav>
+      </aside>
+      <main class="main">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+  </html>
+

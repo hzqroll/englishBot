@@ -1,0 +1,113 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "PingFang SC", sans-serif;
+  background: linear-gradient(180deg, #f5f7fb 0%, #e9eef8 100%);
+  color: #1a2640;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  padding: 32px 20px;
+  background: #152238;
+  color: #f6f8fc;
+}
+
+.sidebar nav {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.sidebar a {
+  color: #dbe7ff;
+  text-decoration: none;
+}
+
+.main {
+  padding: 32px;
+}
+
+.header {
+  margin-bottom: 24px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.card,
+.panel,
+.login-card {
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: 0 12px 32px rgba(21, 34, 56, 0.08);
+}
+
+.panel table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.panel th,
+.panel td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid #e4ebf5;
+}
+
+.login-body {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+}
+
+.login-card {
+  width: min(420px, calc(100vw - 32px));
+  display: grid;
+  gap: 12px;
+}
+
+input,
+textarea,
+button {
+  width: 100%;
+  border: 1px solid #cfd9ea;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+button {
+  background: #1f5eff;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.error {
+  color: #ba1a1a;
+}
+
+.setting-form {
+  display: grid;
+  gap: 12px;
+}
+
+.trigger-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}

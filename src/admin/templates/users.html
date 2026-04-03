@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="header">
+  <h2>用户列表</h2>
+</header>
+<section class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th>QQ</th>
+        <th>昵称</th>
+        <th>加入时间</th>
+        <th>最近活跃</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td>{{ user.qq_user_id }}</td>
+        <td>{{ user.nickname }}</td>
+        <td>{{ user.joined_at }}</td>
+        <td>{{ user.last_active_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
+

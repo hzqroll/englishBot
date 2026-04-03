@@ -1,0 +1,38 @@
+services:
+  bot-app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: english-bot-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ../data:/app/data
+      - ./config.example.yaml:/app/config.yaml:ro
+    expose:
+      - "8080"
+
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: english-bot-napcat
+    restart: unless-stopped
+    environment:
+      NAPCAT_GID: "1000"
+      NAPCAT_UID: "1000"
+    volumes:
+      - ../data/napcat:/app/napcat/config
+    depends_on:
+      - bot-app
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: english-bot-caddy
+    restart: unless-stopped
+    depends_on:
+      - bot-app
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+

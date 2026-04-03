@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="header">
+  <h2>动态配置</h2>
+</header>
+
+<section class="panel">
+  <form method="post" action="/admin/settings" class="setting-form">
+    <label>配置键</label>
+    <input type="text" name="key" required />
+    <label>配置值</label>
+    <textarea name="value" rows="4" required></textarea>
+    <button type="submit">保存</button>
+  </form>
+</section>
+
+<section class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th>键</th>
+        <th>值</th>
+        <th>更新时间</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in settings %}
+      <tr>
+        <td>{{ item.key }}</td>
+        <td><pre>{{ item.value }}</pre></td>
+        <td>{{ item.updated_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h3>当前生效配置</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>键</th>
+        <th>值</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for key, value in effective_settings.items() %}
+      <tr>
+        <td>{{ key }}</td>
+        <td><pre>{{ value }}</pre></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

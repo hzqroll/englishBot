@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>管理员登录</title>
+    <link rel="stylesheet" href="/admin/static/admin.css" />
+  </head>
+  <body class="login-body">
+    <form class="login-card" method="post" action="/admin/login">
+      <h1>管理员登录</h1>
+      {% if error %}
+      <p class="error">{{ error }}</p>
+      {% endif %}
+      <label>用户名</label>
+      <input type="text" name="username" required />
+      <label>密码</label>
+      <input type="password" name="password" required />
+      <button type="submit">登录</button>
+    </form>
+  </body>
+  </html>
+

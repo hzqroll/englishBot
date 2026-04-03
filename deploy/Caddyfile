@@ -1,0 +1,20 @@
+:80 {
+    encode gzip
+
+    handle /admin* {
+        reverse_proxy bot-app:8080
+    }
+
+    handle /healthz {
+        reverse_proxy bot-app:8080
+    }
+
+    handle /readyz {
+        reverse_proxy bot-app:8080
+    }
+
+    handle {
+        reverse_proxy bot-app:8080
+    }
+}
+
