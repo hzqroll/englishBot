@@ -18,8 +18,8 @@ from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
 from src.infrastructure.db.session import create_engine, create_session_factory, init_db
 from src.infrastructure.providers.content_ted import TedContentProvider
-from src.infrastructure.providers.llm_doubao import DoubaoProvider
-from src.infrastructure.providers.translate_google import GoogleTranslateProvider
+from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
+from src.infrastructure.providers.translate_tencent import TencentTranslateProvider
 from src.infrastructure.settings.models import EffectiveSettings
 from src.infrastructure.settings.runtime import RuntimeConfigService
 
@@ -32,8 +32,8 @@ class ServiceContainer:
     identity_repo: IdentityRepository
     learning_repo: LearningRepository
     admin_repo: AdminRepository
-    translate_provider: GoogleTranslateProvider
-    correction_provider: DoubaoProvider
+    translate_provider: TencentTranslateProvider
+    correction_provider: OpenAICompatibleProvider
     content_provider: TedContentProvider
     runtime_config: RuntimeConfigService
     context_store: ContextStore
@@ -56,14 +56,16 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
     identity_repo = IdentityRepository(session_factory)
     learning_repo = LearningRepository(session_factory)
     admin_repo = AdminRepository(session_factory)
-    translate_provider = GoogleTranslateProvider(
-        api_key=settings.runtime.google_translate_api_key,
-        base_url=settings.runtime.google_translate_base_url,
+    translate_provider = TencentTranslateProvider(
+        secret_id=settings.runtime.tencent_translate_secret_id,
+        secret_key=settings.runtime.tencent_translate_secret_key,
+        region=settings.runtime.tencent_translate_region,
+        endpoint=settings.runtime.tencent_translate_endpoint,
     )
-    correction_provider = DoubaoProvider(
-        api_key=settings.runtime.ark_api_key,
-        base_url=settings.runtime.ark_base_url,
-        model=settings.runtime.ark_model,
+    correction_provider = OpenAICompatibleProvider(
+        api_key=settings.runtime.llm_api_key,
+        base_url=settings.runtime.llm_base_url,
+        model=settings.runtime.llm_model,
     )
     content_provider = TedContentProvider(
         rss_urls=settings.static.content.ted_rss_urls,
@@ -100,11 +102,13 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         identity_repo=identity_repo,
         learning_repo=learning_repo,
         runtime_config=runtime_config,
+        review_scheduler=review_scheduler,
     )
     report_usecase = ReportUseCase(
         identity_repo=identity_repo,
         learning_repo=learning_repo,
         summary_provider=correction_provider,
+        level_service=level_service,
     )
     admin_usecase = AdminUseCase(
         admin_repo=admin_repo,

@@ -23,6 +23,7 @@ dependencies = [
   "pyyaml>=6.0.2",
   "sqlalchemy[asyncio]>=2.0.36",
   "tenacity>=9.0.0",
+  "tencentcloud-sdk-python>=3.0.1399",
   "uvicorn>=0.34.0",
 ]
 

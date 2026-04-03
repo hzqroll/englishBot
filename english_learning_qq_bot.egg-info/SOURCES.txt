@@ -45,8 +45,8 @@ src/infrastructure/db/repositories/identity.py
 src/infrastructure/db/repositories/learning.py
 src/infrastructure/providers/__init__.py
 src/infrastructure/providers/content_ted.py
-src/infrastructure/providers/llm_doubao.py
-src/infrastructure/providers/translate_google.py
+src/infrastructure/providers/llm_openai.py
+src/infrastructure/providers/translate_tencent.py
 src/infrastructure/settings/__init__.py
 src/infrastructure/settings/container.py
 src/infrastructure/settings/loader.py
@@ -57,5 +57,6 @@ src/plugins/at_message.py
 src/plugins/commands.py
 src/plugins/scheduler.py
 tests/test_error_aggregation.py
+tests/test_learning_repository.py
 tests/test_leveling.py
 tests/test_review_service.py

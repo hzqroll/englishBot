@@ -10,4 +10,5 @@ build/
 *.db
 data/
 .env
-
+deploy/.env
+deploy/config.yaml

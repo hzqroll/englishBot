@@ -25,12 +25,14 @@ class AppRuntimeSettings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "admin123"
 
-    google_translate_api_key: str = ""
-    google_translate_base_url: str = "https://translation.googleapis.com/language/translate/v2"
+    tencent_translate_secret_id: str = ""
+    tencent_translate_secret_key: str = ""
+    tencent_translate_region: str = "ap-beijing"
+    tencent_translate_endpoint: str = "tmt.tencentcloudapi.com"
 
-    ark_api_key: str = ""
-    ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
-    ark_model: str = "doubao-1-5-pro-32k-250115"
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "gpt-4o-mini"
 
 
 class BotSettings(BaseModel):
@@ -94,4 +96,3 @@ class EffectiveSettings:
 
     def __post_init__(self) -> None:
         self.data_dir = self.project_root / "data"
-

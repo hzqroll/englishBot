@@ -22,6 +22,7 @@ Requires-Dist: python-multipart>=0.0.20
 Requires-Dist: pyyaml>=6.0.2
 Requires-Dist: sqlalchemy[asyncio]>=2.0.36
 Requires-Dist: tenacity>=9.0.0
+Requires-Dist: tencentcloud-sdk-python>=3.0.1399
 Requires-Dist: uvicorn>=0.34.0
 Provides-Extra: dev
 Requires-Dist: pytest>=8.3.4; extra == "dev"
@@ -29,40 +30,77 @@ Requires-Dist: pytest-asyncio>=0.24.0; extra == "dev"
 
 # English Learning QQ Bot
 
-一个基于 `NoneBot2 + NapCat + SQLite + FastAPI` 的英语学习 QQ 机器人项目。
+一个基于 `NoneBot2 + NapCat + SQLite + FastAPI` 的英语学习 QQ 机器人。
 
-## 当前实现范围
+## 当前能力
 
-- `@机器人` 自动中英识别、翻译、纠错
-- 错误点沉淀与复习项生成
-- 报名学习、每日任务、复习、周测、周报的应用层骨架
-- 管理后台、动态配置、定时任务与部署脚手架
+- 群内 `@机器人` 自动识别中英文，执行翻译、英文纠错和表达优化
+- 把纠错结果沉淀为 `error_points` 和 `review_items`
+- 支持 `报名学习`、`今日任务`、`复习一下`、`开始周测`、`答题`、`本周总结`
+- 提供 `FastAPI + Jinja2` 管理后台
+- 支持定时推送、周报、周测、SQLite 备份和动态配置覆盖
 
-## 快速开始
+## 项目结构
 
-1. 复制 [deploy/.env.example](/Users/roll/Documents/Playground/englishBot-staging/deploy/.env.example) 为 `.env`
-2. 复制 [deploy/config.example.yaml](/Users/roll/Documents/Playground/englishBot-staging/deploy/config.example.yaml) 为 `config.yaml`
+- `src/main.py`：应用入口
+- `src/plugins/`：NoneBot 消息入口与调度入口
+- `src/application/`：应用服务和业务编排
+- `src/domain/`：领域规则
+- `src/infrastructure/`：数据库、Provider、配置与鉴权
+- `src/admin/`：管理后台页面和路由
+- `deploy/`：Docker、Caddy、示例配置和部署文档
+
+## 外部接口
+
+- 翻译：腾讯云机器翻译 `TextTranslate`
+- 大模型：OpenAI 兼容 `chat/completions` 接口
+- 数据库：本地 SQLite 文件
+
+## 本地开发
+
+1. 在项目根目录复制运行时文件：
+
+```bash
+cp deploy/.env.example .env
+cp deploy/config.example.yaml config.yaml
+```
+
+2. 按需修改 `.env` 和 `config.yaml`。
 3. 安装依赖并启动：
 
 ```bash
-uv sync
+uv python install 3.12
+uv sync --python 3.12 --extra dev
 uv run python -m src.main
 ```
 
-4. 如果使用 Docker Compose：
+4. 打开后台：
+
+- `http://127.0.0.1:8080/admin/login`
+- `http://127.0.0.1:8080/healthz`
+
+## Docker 部署
+
+部署步骤见 [deploy/DEPLOY.md](deploy/DEPLOY.md)。
+
+最短路径：
 
 ```bash
 cd deploy
+cp .env.example .env
+cp config.example.yaml config.yaml
 docker compose up -d --build
 ```
 
-## 目录结构
+启动后：
 
-- [src/main.py](/Users/roll/Documents/Playground/englishBot-staging/src/main.py)：应用入口
-- [src/plugins](/Users/roll/Documents/Playground/englishBot-staging/src/plugins)：NoneBot 消息与任务入口
-- [src/application](/Users/roll/Documents/Playground/englishBot-staging/src/application)：应用服务
-- [src/domain](/Users/roll/Documents/Playground/englishBot-staging/src/domain)：领域对象与规则
-- [src/infrastructure](/Users/roll/Documents/Playground/englishBot-staging/src/infrastructure)：数据库、Provider、配置与鉴权
-- [src/admin](/Users/roll/Documents/Playground/englishBot-staging/src/admin)：管理后台
-- [deploy](/Users/roll/Documents/Playground/englishBot-staging/deploy)：部署文件
+- 管理后台：`http://<你的服务器 IP>:<CADDY_HTTP_PORT>/admin/login`
+- 健康检查：`http://<你的服务器 IP>:<CADDY_HTTP_PORT>/healthz`
+- NapCat WebUI：`http://<你的服务器 IP>:<NAPCAT_WEBUI_PORT>`
 
+## 当前边界
+
+- 第一版只面向单群试点
+- 周测目前是客观题
+- TED 内容源不可用时会回退到内置短文
+- 未配置腾讯翻译或大模型密钥时，相关能力会走降级逻辑

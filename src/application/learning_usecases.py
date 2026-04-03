@@ -9,7 +9,7 @@ from src.domain.value_objects.learning import LessonBundle
 from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
 from src.infrastructure.providers.content_ted import TedContentProvider
-from src.infrastructure.providers.llm_doubao import DoubaoProvider
+from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
 from src.infrastructure.settings.runtime import RuntimeConfigService
 
 
@@ -30,7 +30,7 @@ class LearningUseCase:
         level_service: LevelService,
         review_scheduler: ReviewScheduler,
         content_provider: TedContentProvider,
-        feedback_provider: DoubaoProvider,
+        feedback_provider: OpenAICompatibleProvider,
         points_per_task: int,
         points_per_review: int,
         runtime_config: RuntimeConfigService,
@@ -144,11 +144,19 @@ class LearningUseCase:
     async def refresh_user_level(self, *, qq_group_id: str, qq_user_id: str, nickname: str) -> str:
         group = await self._identity_repo.ensure_group(qq_group_id)
         user = await self._identity_repo.ensure_user(qq_user_id, nickname)
+        enrolled = await self._identity_repo.is_enrolled(user.id, group.id)
+        if not enrolled:
+            return "你还没有报名学习，请先发送“报名学习”。"
+
+        evidence_payload = await self._learning_repo.get_learning_evidence(
+            user_id=user.id,
+            group_id=group.id,
+        )
         evidence = LearningEvidence(
-            translation_count=6,
-            correction_count=6,
-            task_completion_count=2,
-            quiz_average_score=72,
+            translation_count=evidence_payload["translation_count"],
+            correction_count=evidence_payload["correction_count"],
+            task_completion_count=evidence_payload["task_completion_count"],
+            quiz_average_score=evidence_payload["quiz_average_score"],
         )
         level, payload = self._level_service.evaluate(evidence)
         await self._learning_repo.upsert_user_level(
@@ -157,4 +165,12 @@ class LearningUseCase:
             current_level=level,
             evidence_json=payload,
         )
-        return f"当前等级：{level}。判定依据：{payload}"
+        level_label = "初级" if level == "beginner" else "中级"
+        return (
+            f"当前等级：{level_label}（{level}）\n"
+            f"- 翻译次数：{evidence.translation_count}\n"
+            f"- 纠错次数：{evidence.correction_count}\n"
+            f"- 任务完成数：{evidence.task_completion_count}\n"
+            f"- 周测平均分：{evidence.quiz_average_score:.1f}\n"
+            f"- 活跃度评分：{payload['activity_score']}"
+        )

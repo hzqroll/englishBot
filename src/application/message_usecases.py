@@ -8,8 +8,8 @@ from src.domain.value_objects.learning import CorrectionResult, ErrorPointPayloa
 from src.infrastructure.cache.context_store import ContextStore
 from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
-from src.infrastructure.providers.llm_doubao import DoubaoProvider
-from src.infrastructure.providers.translate_google import GoogleTranslateProvider
+from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
+from src.infrastructure.providers.translate_tencent import TencentTranslateProvider
 
 
 @dataclass(slots=True)
@@ -28,8 +28,8 @@ class MessageUseCase:
         *,
         identity_repo: IdentityRepository,
         learning_repo: LearningRepository,
-        translate_provider: GoogleTranslateProvider,
-        correction_provider: DoubaoProvider,
+        translate_provider: TencentTranslateProvider,
+        correction_provider: OpenAICompatibleProvider,
         context_store: ContextStore,
         error_aggregator: ErrorAggregator,
         review_scheduler: ReviewScheduler,
@@ -133,4 +133,3 @@ class MessageUseCase:
             f"英文翻译：\n{translated_text}\n\n"
             f"更自然表达：\n{natural_text}"
         )
-

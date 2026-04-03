@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import desc, func, select
@@ -11,6 +11,7 @@ from src.infrastructure.db.models import (
     ContentItem,
     DailyLesson,
     DailyTask,
+    Enrollment,
     ErrorPoint,
     InteractionResult,
     JobRun,
@@ -21,6 +22,7 @@ from src.infrastructure.db.models import (
     QuizAnswer,
     ReviewItem,
     RuntimeSetting,
+    Streak,
     TaskSubmission,
     UserLevel,
     WeeklyReport,
@@ -277,6 +279,23 @@ class LearningRepository:
     async def award_points(self, *, user_id: int, points: int, reason: str) -> None:
         async with self._session_factory() as session:
             session.add(PointsLedger(user_id=user_id, points=points, reason=reason))
+            streak = await session.scalar(select(Streak).where(Streak.user_id == user_id))
+            today = datetime.now(UTC).date()
+            if streak is None:
+                streak = Streak(user_id=user_id, current_days=1, max_days=1, last_activity_date=datetime.now(UTC))
+                session.add(streak)
+            else:
+                last_date = streak.last_activity_date.date() if streak.last_activity_date else None
+                if last_date == today:
+                    pass
+                elif last_date == today - timedelta(days=1):
+                    streak.current_days += 1
+                    streak.max_days = max(streak.max_days, streak.current_days)
+                    streak.last_activity_date = datetime.now(UTC)
+                else:
+                    streak.current_days = 1
+                    streak.max_days = max(streak.max_days, 1)
+                    streak.last_activity_date = datetime.now(UTC)
             await session.commit()
 
     async def upsert_user_level(self, *, user_id: int, group_id: int, current_level: str, evidence_json: dict) -> None:
@@ -345,6 +364,32 @@ class LearningRepository:
         async with self._session_factory() as session:
             rows = await session.scalars(
                 select(QuizQuestion).where(QuizQuestion.session_id == session_id).order_by(QuizQuestion.id.asc())
+            )
+            return list(rows)
+
+    async def get_quiz_session(self, *, session_id: int) -> QuizSession | None:
+        async with self._session_factory() as session:
+            return await session.get(QuizSession, session_id)
+
+    async def get_recent_tasks_for_quiz(
+        self,
+        *,
+        group_id: int,
+        days: int = 7,
+        limit: int = 10,
+    ) -> list[DailyTask]:
+        async with self._session_factory() as session:
+            start_date = (datetime.now(UTC) - timedelta(days=days)).date()
+            rows = await session.scalars(
+                select(DailyTask)
+                .join(DailyLesson, DailyLesson.id == DailyTask.lesson_id)
+                .where(
+                    DailyLesson.group_id == group_id,
+                    DailyLesson.biz_date >= start_date,
+                    DailyLesson.biz_date <= datetime.now(UTC).date(),
+                )
+                .order_by(desc(DailyLesson.biz_date), DailyTask.id.asc())
+                .limit(limit)
             )
             return list(rows)
 
@@ -435,14 +480,24 @@ class LearningRepository:
 
     async def get_dashboard_metrics(self) -> dict[str, int]:
         async with self._session_factory() as session:
-            total_users = await session.scalar(select(func.count()).select_from(MessageEvent))
+            total_messages = await session.scalar(select(func.count()).select_from(MessageEvent))
             total_errors = await session.scalar(select(func.count()).select_from(ErrorPoint))
             total_reviews = await session.scalar(select(func.count()).select_from(ReviewItem))
             total_jobs = await session.scalar(select(func.count()).select_from(JobRun))
+            total_enrollments = await session.scalar(select(func.count()).select_from(Enrollment))
+            active_users = await session.scalar(
+                select(func.count(func.distinct(MessageEvent.user_id))).select_from(MessageEvent)
+            )
+            total_submissions = await session.scalar(select(func.count()).select_from(TaskSubmission))
+            total_quiz_sessions = await session.scalar(select(func.count()).select_from(QuizSession))
             return {
-                "message_events": int(total_users or 0),
+                "message_events": int(total_messages or 0),
+                "active_users": int(active_users or 0),
+                "enrolled_profiles": int(total_enrollments or 0),
                 "error_points": int(total_errors or 0),
                 "review_items": int(total_reviews or 0),
+                "task_submissions": int(total_submissions or 0),
+                "quiz_sessions": int(total_quiz_sessions or 0),
                 "job_runs": int(total_jobs or 0),
             }
 
@@ -461,3 +516,174 @@ class LearningRepository:
                 row.value = value
                 row.updated_at = datetime.now(UTC)
             await session.commit()
+
+    async def get_learning_evidence(self, *, user_id: int, group_id: int, days: int = 7) -> dict:
+        async with self._session_factory() as session:
+            now = datetime.now(UTC)
+            start = now - timedelta(days=days)
+
+            translation_count = await session.scalar(
+                select(func.count())
+                .select_from(InteractionResult)
+                .join(MessageEvent, MessageEvent.id == InteractionResult.event_id)
+                .where(
+                    MessageEvent.user_id == user_id,
+                    MessageEvent.group_id == group_id,
+                    InteractionResult.action_type == "chinese_translation",
+                    InteractionResult.created_at >= start,
+                )
+            )
+            correction_count = await session.scalar(
+                select(func.count())
+                .select_from(InteractionResult)
+                .join(MessageEvent, MessageEvent.id == InteractionResult.event_id)
+                .where(
+                    MessageEvent.user_id == user_id,
+                    MessageEvent.group_id == group_id,
+                    InteractionResult.action_type == "english_correction",
+                    InteractionResult.created_at >= start,
+                )
+            )
+            task_completion_count = await session.scalar(
+                select(func.count())
+                .select_from(TaskSubmission)
+                .join(DailyTask, DailyTask.id == TaskSubmission.task_id)
+                .join(DailyLesson, DailyLesson.id == DailyTask.lesson_id)
+                .where(
+                    TaskSubmission.user_id == user_id,
+                    DailyLesson.group_id == group_id,
+                    TaskSubmission.submitted_at >= start,
+                )
+            )
+            quiz_average_score = await session.scalar(
+                select(func.avg(QuizSession.total_score)).where(
+                    QuizSession.user_id == user_id,
+                    QuizSession.group_id == group_id,
+                    QuizSession.status == "submitted",
+                    QuizSession.updated_at >= start,
+                )
+            )
+            return {
+                "translation_count": int(translation_count or 0),
+                "correction_count": int(correction_count or 0),
+                "task_completion_count": int(task_completion_count or 0),
+                "quiz_average_score": float(quiz_average_score or 0.0),
+            }
+
+    async def get_weekly_report_stats(self, *, user_id: int, group_id: int, days: int = 7) -> dict:
+        async with self._session_factory() as session:
+            now = datetime.now(UTC)
+            start = now - timedelta(days=days)
+
+            evidence = await self.get_learning_evidence(user_id=user_id, group_id=group_id, days=days)
+            available_tasks = await session.scalar(
+                select(func.count())
+                .select_from(DailyTask)
+                .join(DailyLesson, DailyLesson.id == DailyTask.lesson_id)
+                .where(
+                    DailyLesson.group_id == group_id,
+                    DailyLesson.biz_date >= start.date(),
+                    DailyLesson.biz_date <= now.date(),
+                )
+            )
+            submitted_tasks = evidence["task_completion_count"]
+            task_completion_rate = (
+                round(submitted_tasks / available_tasks, 2) if available_tasks else 0.0
+            )
+
+            weak_rows = await session.execute(
+                select(ErrorPoint.error_type, func.sum(ErrorPoint.frequency).label("freq"))
+                .where(
+                    ErrorPoint.user_id == user_id,
+                    ErrorPoint.group_id == group_id,
+                    ErrorPoint.last_seen_at >= start,
+                )
+                .group_by(ErrorPoint.error_type)
+                .order_by(desc("freq"))
+                .limit(3)
+            )
+            weak_points = [row[0] for row in weak_rows.all()]
+
+            if not weak_points:
+                weak_rows = await session.execute(
+                    select(ErrorPoint.error_type, func.sum(ErrorPoint.frequency).label("freq"))
+                    .where(
+                        ErrorPoint.user_id == user_id,
+                        ErrorPoint.group_id == group_id,
+                    )
+                    .group_by(ErrorPoint.error_type)
+                    .order_by(desc("freq"))
+                    .limit(3)
+                )
+                weak_points = [row[0] for row in weak_rows.all()]
+
+            event_dates = await session.scalars(
+                select(func.date(MessageEvent.created_at))
+                .where(
+                    MessageEvent.user_id == user_id,
+                    MessageEvent.group_id == group_id,
+                    MessageEvent.created_at >= start,
+                )
+            )
+            task_dates = await session.scalars(
+                select(func.date(TaskSubmission.submitted_at))
+                .select_from(TaskSubmission)
+                .join(DailyTask, DailyTask.id == TaskSubmission.task_id)
+                .join(DailyLesson, DailyLesson.id == DailyTask.lesson_id)
+                .where(
+                    TaskSubmission.user_id == user_id,
+                    DailyLesson.group_id == group_id,
+                    TaskSubmission.submitted_at >= start,
+                )
+            )
+            quiz_scores = await session.scalars(
+                select(QuizSession.total_score).where(
+                    QuizSession.user_id == user_id,
+                    QuizSession.group_id == group_id,
+                    QuizSession.status == "submitted",
+                    QuizSession.updated_at >= start,
+                )
+            )
+            total_points = await session.scalar(
+                select(func.sum(PointsLedger.points)).where(
+                    PointsLedger.user_id == user_id,
+                    PointsLedger.created_at >= start,
+                )
+            )
+            streak = await session.scalar(select(Streak).where(Streak.user_id == user_id))
+            level_row = await session.scalar(
+                select(UserLevel).where(
+                    UserLevel.user_id == user_id,
+                    UserLevel.group_id == group_id,
+                )
+            )
+            learning_days = len(set(event_dates.all()) | set(task_dates.all()))
+            quiz_score_list = list(quiz_scores.all())
+            latest_quiz_score = quiz_score_list[-1] if quiz_score_list else 0
+
+            return {
+                "learning_days": learning_days,
+                "task_completion_rate": task_completion_rate,
+                "translation_count": evidence["translation_count"],
+                "correction_count": evidence["correction_count"],
+                "task_completion_count": evidence["task_completion_count"],
+                "quiz_average_score": evidence["quiz_average_score"],
+                "latest_quiz_score": latest_quiz_score,
+                "weak_points": weak_points,
+                "points_earned": int(total_points or 0),
+                "current_streak": int(streak.current_days if streak else 0),
+                "level": level_row.current_level if level_row else "beginner",
+            }
+
+    async def list_top_error_fragments(self, *, user_id: int, group_id: int, limit: int = 5) -> list[ErrorPoint]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(ErrorPoint)
+                .where(
+                    ErrorPoint.user_id == user_id,
+                    ErrorPoint.group_id == group_id,
+                )
+                .order_by(desc(ErrorPoint.frequency), desc(ErrorPoint.last_seen_at))
+                .limit(limit)
+            )
+            return list(rows)

@@ -54,7 +54,7 @@ async def on_startup() -> None:
 
 
 def run() -> None:
-    nonebot.run(app="src.main:app")
+    driver.run(host=settings.runtime.host, port=settings.runtime.port)
 
 
 if __name__ == "__main__":

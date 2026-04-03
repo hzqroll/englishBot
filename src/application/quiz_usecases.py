@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from src.domain.services.review import ReviewScheduler
 from src.domain.value_objects.learning import QuizQuestionBundle
 from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
@@ -15,10 +16,12 @@ class QuizUseCase:
         identity_repo: IdentityRepository,
         learning_repo: LearningRepository,
         runtime_config: RuntimeConfigService,
+        review_scheduler: ReviewScheduler,
     ) -> None:
         self._identity_repo = identity_repo
         self._learning_repo = learning_repo
         self._runtime_config = runtime_config
+        self._review_scheduler = review_scheduler
 
     async def start_weekly_quiz(self, *, qq_group_id: str, qq_user_id: str, nickname: str) -> str:
         group = await self._identity_repo.ensure_group(qq_group_id)
@@ -32,7 +35,12 @@ class QuizUseCase:
             group_id=group.id,
             user_id=user.id,
         )
-        questions = self._build_mock_questions()[: self._runtime_config.weekly_quiz_question_count()]
+        question_count = self._runtime_config.weekly_quiz_question_count()
+        questions = await self._build_weekly_questions(
+            group_id=group.id,
+            user_id=user.id,
+            question_count=question_count,
+        )
         await self._learning_repo.add_quiz_questions(
             session_id=session.id,
             questions=[
@@ -46,12 +54,13 @@ class QuizUseCase:
                 for question in questions
             ],
         )
+        stored_questions = await self._learning_repo.get_quiz_questions(session_id=session.id)
         lines = [
             f"{index}. {question.stem}\n   " + " ".join(
                 f"{chr(65 + option_index)}.{option}"
                 for option_index, option in enumerate(question.options)
             )
-            for index, question in enumerate(questions, start=1)
+            for index, question in enumerate(stored_questions, start=1)
         ]
         return (
             f"周测已生成，session_id={session.id}\n"
@@ -73,6 +82,12 @@ class QuizUseCase:
         if not await self._identity_repo.is_enrolled(user.id, group.id):
             return "你还没有报名学习。"
 
+        session = await self._learning_repo.get_quiz_session(session_id=session_id)
+        if session is None:
+            return "未找到对应周测试卷，请先发送“开始周测”。"
+        if session.user_id != user.id or session.group_id != group.id:
+            return "这份试卷不属于你当前所在的学习群，无法提交。"
+
         questions = await self._learning_repo.get_quiz_questions(session_id=session_id)
         if not questions:
             return "未找到对应周测试卷，请先发送“开始周测”。"
@@ -80,6 +95,7 @@ class QuizUseCase:
         scored_answers: list[dict] = []
         total_score = 0
         wrong_items: list[str] = []
+        wrong_review_error_point_ids: list[int] = []
         for index, question in enumerate(questions, start=1):
             user_answer = answers.get(index, "").upper()
             is_correct = user_answer == question.answer_key.upper()
@@ -87,6 +103,10 @@ class QuizUseCase:
             total_score += score
             if not is_correct:
                 wrong_items.append(f"{index}. 正确答案 {question.answer_key}，你的答案 {user_answer or '未作答'}")
+                if question.source_type.startswith("review:error_point:"):
+                    error_point_id = question.source_type.removeprefix("review:error_point:")
+                    if error_point_id.isdigit():
+                        wrong_review_error_point_ids.append(int(error_point_id))
             scored_answers.append(
                 {
                     "question_id": question.id,
@@ -101,9 +121,96 @@ class QuizUseCase:
             answers=scored_answers,
             total_score=total_score,
         )
+        if wrong_review_error_point_ids:
+            progress = self._review_scheduler.schedule_new()
+            await self._learning_repo.ensure_review_items(
+                user_id=user.id,
+                source_type="weekly_quiz",
+                source_ref_id=str(session_id),
+                error_point_ids=wrong_review_error_point_ids,
+                interval_days=progress.interval_days,
+                next_review_at=progress.next_review_at,
+                status=progress.status,
+            )
         await self._learning_repo.award_points(user_id=user.id, points=20, reason="weekly_quiz")
         summary = "\n".join(wrong_items[:5]) if wrong_items else "全部答对，做得很好。"
         return f"周测提交成功，总分 {total_score}。\n错题摘要：\n{summary}"
+
+    async def _build_weekly_questions(
+        self,
+        *,
+        group_id: int,
+        user_id: int,
+        question_count: int,
+    ) -> list[QuizQuestionBundle]:
+        review_quota = round(question_count * self._runtime_config.weekly_quiz_review_ratio())
+        review_quota = min(max(review_quota, 1), question_count) if question_count > 1 else question_count
+        lesson_quota = max(question_count - review_quota, 0)
+
+        top_errors = await self._learning_repo.list_top_error_fragments(
+            user_id=user_id,
+            group_id=group_id,
+            limit=review_quota,
+        )
+        recent_tasks = await self._learning_repo.get_recent_tasks_for_quiz(
+            group_id=group_id,
+            limit=max(lesson_quota, question_count),
+        )
+
+        questions: list[QuizQuestionBundle] = []
+        questions.extend(self._build_review_questions(top_errors))
+        questions.extend(self._build_lesson_questions(recent_tasks[:lesson_quota]))
+
+        if len(questions) < question_count:
+            for fallback in self._build_mock_questions():
+                questions.append(fallback)
+                if len(questions) >= question_count:
+                    break
+        return questions[:question_count]
+
+    def _build_review_questions(self, error_points: list) -> list[QuizQuestionBundle]:
+        questions: list[QuizQuestionBundle] = []
+        for item in error_points:
+            options = [
+                item.source_fragment,
+                item.correct_fragment,
+                "No change needed",
+            ]
+            questions.append(
+                QuizQuestionBundle(
+                    source_type=f"review:error_point:{item.id}",
+                    stem=(
+                        f"你的高频错误类型是 {item.error_type}。"
+                        f" 哪个片段更适合替换 `{item.source_fragment}`？"
+                    ),
+                    options=options,
+                    answer_key="B",
+                    explanation=item.explanation,
+                )
+            )
+        return questions
+
+    def _build_lesson_questions(self, tasks: list) -> list[QuizQuestionBundle]:
+        label_to_option = {
+            "vocabulary": "词汇提取",
+            "reading": "阅读理解",
+            "output": "英文输出",
+        }
+        options = ["词汇提取", "阅读理解", "英文输出", "语法观察"]
+        questions: list[QuizQuestionBundle] = []
+        for task in tasks:
+            correct_option = label_to_option.get(task.task_type, "语法观察")
+            answer_key = chr(65 + options.index(correct_option))
+            questions.append(
+                QuizQuestionBundle(
+                    source_type=f"lesson:{task.task_type}",
+                    stem=f"题目“{task.prompt[:70]}...”主要训练哪项能力？",
+                    options=options,
+                    answer_key=answer_key,
+                    explanation=f"该题来自最近任务，核心目标是：{correct_option}。",
+                )
+            )
+        return questions
 
     def _build_mock_questions(self) -> list[QuizQuestionBundle]:
         return [

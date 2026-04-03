@@ -23,7 +23,7 @@ content:
 learning:
   beginner_threshold: 20
   intermediate_quiz_threshold: 70
-  weekly_quiz_question_count: 8
+  weekly_quiz_question_count: 6
   weekly_quiz_review_ratio: 0.4
   daily_review_insert_count: 2
   score_per_task_completion: 10
@@ -33,4 +33,3 @@ learning:
 admin:
   title: "English Bot Admin"
   enable_http_login_warning: true
-
