@@ -28,6 +28,8 @@ services:
       NAPCAT_UID: "${NAPCAT_UID:-1000}"
     volumes:
       - ../data/napcat:/app/napcat/config
+      - ../data/napcat-qq:/app/.config/QQ
+      - ../data/napcat-cache:/app/napcat/cache
     ports:
       - "${NAPCAT_WEBUI_PORT:-6099}:6099"
     depends_on:

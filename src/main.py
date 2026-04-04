@@ -6,6 +6,7 @@ from pathlib import Path
 import nonebot
 from fastapi.staticfiles import StaticFiles
 from nonebot import get_driver, load_plugin
+from nonebot.adapters.onebot.v11 import Adapter as OneBotV11Adapter
 from nonebot.drivers.fastapi import Driver as FastAPIDriver
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -34,6 +35,7 @@ nonebot.init(
 driver = get_driver()
 if not isinstance(driver, FastAPIDriver):
     raise RuntimeError("FastAPI driver is required.")
+driver.register_adapter(OneBotV11Adapter)
 
 app = driver.server_app
 app.state.settings = settings

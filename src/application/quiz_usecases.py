@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from src.domain.services.review import ReviewScheduler
 from src.domain.value_objects.learning import QuizQuestionBundle
+from src.domain.value_objects.messaging import MessageEnvelope
+from src.infrastructure.auth.card_links import CardLinkSigner
 from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
+from src.infrastructure.messaging.renderers import NapCatCardRenderer
 from src.infrastructure.settings.runtime import RuntimeConfigService
 
 
@@ -17,17 +20,37 @@ class QuizUseCase:
         learning_repo: LearningRepository,
         runtime_config: RuntimeConfigService,
         review_scheduler: ReviewScheduler,
+        card_link_signer: CardLinkSigner,
+        napcat_card_renderer: NapCatCardRenderer,
     ) -> None:
         self._identity_repo = identity_repo
         self._learning_repo = learning_repo
         self._runtime_config = runtime_config
         self._review_scheduler = review_scheduler
+        self._card_link_signer = card_link_signer
+        self._napcat_card_renderer = napcat_card_renderer
 
     async def start_weekly_quiz(self, *, qq_group_id: str, qq_user_id: str, nickname: str) -> str:
+        return (
+            await self.start_weekly_quiz_envelope(
+                qq_group_id=qq_group_id,
+                qq_user_id=qq_user_id,
+                nickname=nickname,
+            )
+        ).plain_text
+
+    async def start_weekly_quiz_envelope(
+        self,
+        *,
+        qq_group_id: str,
+        qq_user_id: str,
+        nickname: str,
+        base_url_override: str | None = None,
+    ) -> MessageEnvelope:
         group = await self._identity_repo.ensure_group(qq_group_id)
         user = await self._identity_repo.ensure_user(qq_user_id, nickname)
         if not await self._identity_repo.is_enrolled(user.id, group.id):
-            return "请先发送“报名学习”后再开始周测。"
+            return MessageEnvelope(plain_text="请先发送“报名学习”后再开始周测。")
 
         biz_week = datetime.now(UTC).strftime("%G-W%V")
         session = await self._learning_repo.create_quiz_session(
@@ -62,10 +85,33 @@ class QuizUseCase:
             )
             for index, question in enumerate(stored_questions, start=1)
         ]
-        return (
+        plain_text = (
             f"周测已生成，session_id={session.id}\n"
             f"请使用 `答题 {session.id} 1:A 2:B ...` 提交整卷。\n\n"
             + "\n\n".join(lines)
+        )
+        card_link_url = self._build_card_link(
+            resource_type="quiz",
+            resource_id=str(session.id),
+            qq_user_id=qq_user_id,
+            qq_group_id=qq_group_id,
+            base_url_override=base_url_override,
+        )
+        if not card_link_url:
+            return MessageEnvelope(plain_text=plain_text)
+
+        card_payload = self._napcat_card_renderer.build_click_card(
+            title="本周英语小测",
+            summary=f"共 {len(stored_questions)} 题，点击进入答题页。",
+            url=card_link_url,
+            action_label="开始答题",
+        )
+        return MessageEnvelope(
+            plain_text=plain_text,
+            fallback_text=f"{plain_text}\n\n答题页：{card_link_url}",
+            card_payload=card_payload,
+            card_link_url=card_link_url,
+            card_title="本周英语小测",
         )
 
     async def submit_weekly_quiz(
@@ -234,3 +280,25 @@ class QuizUseCase:
                 explanation="like studying English very much 更自然。",
             ),
         ]
+
+    def _build_card_link(
+        self,
+        *,
+        resource_type: str,
+        resource_id: str,
+        qq_user_id: str,
+        qq_group_id: str,
+        base_url_override: str | None,
+    ) -> str | None:
+        base_url = (base_url_override or self._runtime_config.public_base_url()).rstrip("/")
+        if not base_url:
+            return None
+        expires_at = datetime.now(UTC) + timedelta(minutes=self._runtime_config.link_expire_minutes())
+        token = self._card_link_signer.sign(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            qq_user_id=qq_user_id,
+            qq_group_id=qq_group_id,
+            expires_at=expires_at,
+        )
+        return f"{base_url}/learn/quiz/{token}"

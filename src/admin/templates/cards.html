@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="header">
+  <h2>卡片预览</h2>
+  <p>本地生成任务、周测、周报卡片 payload，验证签名链接和降级文本。</p>
+</header>
+
+<section class="panel">
+  <form method="post" action="/admin/cards" class="setting-form">
+    <label>卡片类型</label>
+    <select name="resource_type">
+      <option value="task" {% if form_data and form_data.resource_type == "task" %}selected{% endif %}>今日任务</option>
+      <option value="quiz" {% if form_data and form_data.resource_type == "quiz" %}selected{% endif %}>周测</option>
+      <option value="report" {% if form_data and form_data.resource_type == "report" %}selected{% endif %}>周报</option>
+    </select>
+    <label>群号</label>
+    <input type="text" name="group_id" value="{{ form_data.group_id if form_data else default_group_id }}" required />
+    <label>用户 ID</label>
+    <input type="text" name="user_id" value="{{ form_data.user_id if form_data else 'preview-user-1' }}" required />
+    <label>昵称</label>
+    <input type="text" name="nickname" value="{{ form_data.nickname if form_data else 'Previewer' }}" required />
+    <button type="submit">生成预览</button>
+  </form>
+</section>
+
+{% if result %}
+<section class="panel">
+  <h3>文本回退</h3>
+  <pre class="debug-result">{{ result.fallback_text or result.plain_text }}</pre>
+</section>
+
+{% if result.card_link_url %}
+<section class="panel">
+  <h3>学习页链接</h3>
+  <p><a href="{{ result.card_link_url }}" target="_blank">{{ result.card_link_url }}</a></p>
+</section>
+{% endif %}
+
+{% if result.card_payload_json %}
+<section class="panel">
+  <h3>卡片 Payload</h3>
+  <pre class="debug-result">{{ result.card_payload_json }}</pre>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -39,6 +39,22 @@ class RuntimeConfigService:
     def weekly_quiz_review_ratio(self) -> float:
         return self._get("learning.weekly_quiz_review_ratio", self.settings.static.learning.weekly_quiz_review_ratio)
 
+    def render_mode(self) -> str:
+        return self._get("message.render_mode", self.settings.static.message.render_mode)
+
+    def enable_task_cards(self) -> bool:
+        return self._get("message.enable_task_cards", self.settings.static.message.enable_task_cards)
+
+    def public_base_url(self) -> str:
+        value = self._get("message.public_base_url", self.settings.static.message.public_base_url)
+        return str(value or "").rstrip("/")
+
+    def link_expire_minutes(self) -> int:
+        return self._get("message.link_expire_minutes", self.settings.static.message.link_expire_minutes)
+
+    def card_fallback_to_text(self) -> bool:
+        return self._get("message.card_fallback_to_text", self.settings.static.message.card_fallback_to_text)
+
     def cron(self, key: str) -> str:
         defaults = {
             "scheduler.daily_push_cron": self.settings.static.scheduler.daily_push_cron,
@@ -57,6 +73,11 @@ class RuntimeConfigService:
             "learning.daily_review_insert_count": self.daily_review_insert_count(),
             "learning.weekly_quiz_question_count": self.weekly_quiz_question_count(),
             "learning.weekly_quiz_review_ratio": self.weekly_quiz_review_ratio(),
+            "message.render_mode": self.render_mode(),
+            "message.enable_task_cards": self.enable_task_cards(),
+            "message.public_base_url": self.public_base_url(),
+            "message.link_expire_minutes": self.link_expire_minutes(),
+            "message.card_fallback_to_text": self.card_fallback_to_text(),
             "scheduler.daily_push_cron": self.cron("scheduler.daily_push_cron"),
             "scheduler.daily_reminder_cron": self.cron("scheduler.daily_reminder_cron"),
             "scheduler.weekly_report_cron": self.cron("scheduler.weekly_report_cron"),

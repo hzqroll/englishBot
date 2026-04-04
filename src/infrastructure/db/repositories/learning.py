@@ -77,6 +77,55 @@ class LearningRepository:
             await session.refresh(interaction)
             return interaction
 
+    async def get_message_event_by_raw_event_id(self, *, raw_event_id: str) -> MessageEvent | None:
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(MessageEvent).where(MessageEvent.raw_event_id == raw_event_id)
+            )
+
+    async def get_user_group_debug_counts(self, *, user_id: int, group_id: int) -> dict[str, int]:
+        async with self._session_factory() as session:
+            message_events = await session.scalar(
+                select(func.count())
+                .select_from(MessageEvent)
+                .where(
+                    MessageEvent.user_id == user_id,
+                    MessageEvent.group_id == group_id,
+                )
+            )
+            interaction_results = await session.scalar(
+                select(func.count())
+                .select_from(InteractionResult)
+                .join(MessageEvent, MessageEvent.id == InteractionResult.event_id)
+                .where(
+                    MessageEvent.user_id == user_id,
+                    MessageEvent.group_id == group_id,
+                )
+            )
+            error_points = await session.scalar(
+                select(func.count())
+                .select_from(ErrorPoint)
+                .where(
+                    ErrorPoint.user_id == user_id,
+                    ErrorPoint.group_id == group_id,
+                )
+            )
+            review_items = await session.scalar(
+                select(func.count())
+                .select_from(ReviewItem)
+                .join(ErrorPoint, ErrorPoint.id == ReviewItem.error_point_id, isouter=True)
+                .where(
+                    ReviewItem.user_id == user_id,
+                    (ErrorPoint.group_id == group_id) | (ReviewItem.error_point_id.is_(None)),
+                )
+            )
+            return {
+                "message_events": int(message_events or 0),
+                "interaction_results": int(interaction_results or 0),
+                "error_points": int(error_points or 0),
+                "review_items": int(review_items or 0),
+            }
+
     async def upsert_error_points(
         self,
         *,
@@ -219,6 +268,42 @@ class LearningRepository:
             tasks = await session.scalars(select(DailyTask).where(DailyTask.lesson_id == lesson.id))
             return list(tasks)
 
+    async def get_today_lesson_detail(self, *, group_id: int, biz_date: date) -> tuple[DailyLesson, ContentItem] | None:
+        async with self._session_factory() as session:
+            row = await session.execute(
+                select(DailyLesson, ContentItem)
+                .join(ContentItem, ContentItem.id == DailyLesson.content_item_id)
+                .where(
+                    DailyLesson.group_id == group_id,
+                    DailyLesson.biz_date == biz_date,
+                )
+            )
+            result = row.first()
+            if result is None:
+                return None
+            return result[0], result[1]
+
+    async def get_lesson_detail(self, *, lesson_id: int) -> tuple[DailyLesson, ContentItem] | None:
+        async with self._session_factory() as session:
+            row = await session.execute(
+                select(DailyLesson, ContentItem)
+                .join(ContentItem, ContentItem.id == DailyLesson.content_item_id)
+                .where(DailyLesson.id == lesson_id)
+            )
+            result = row.first()
+            if result is None:
+                return None
+            return result[0], result[1]
+
+    async def get_tasks_for_lesson(self, *, lesson_id: int) -> list[DailyTask]:
+        async with self._session_factory() as session:
+            tasks = await session.scalars(
+                select(DailyTask)
+                .where(DailyTask.lesson_id == lesson_id)
+                .order_by(DailyTask.id.asc())
+            )
+            return list(tasks)
+
     async def submit_task(
         self,
         *,
@@ -253,6 +338,18 @@ class LearningRepository:
             await session.commit()
             await session.refresh(submission)
             return submission
+
+    async def get_task_submissions_for_user(self, *, user_id: int, task_ids: list[int]) -> dict[int, TaskSubmission]:
+        if not task_ids:
+            return {}
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(TaskSubmission).where(
+                    TaskSubmission.user_id == user_id,
+                    TaskSubmission.task_id.in_(task_ids),
+                )
+            )
+            return {row.task_id: row for row in rows}
 
     async def get_due_review_items(self, *, user_id: int, limit: int) -> list[ReviewItem]:
         async with self._session_factory() as session:
@@ -367,6 +464,13 @@ class LearningRepository:
             )
             return list(rows)
 
+    async def get_quiz_answers(self, *, session_id: int) -> dict[int, QuizAnswer]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(QuizAnswer).where(QuizAnswer.session_id == session_id)
+            )
+            return {row.question_id: row for row in rows}
+
     async def get_quiz_session(self, *, session_id: int) -> QuizSession | None:
         async with self._session_factory() as session:
             return await session.get(QuizSession, session_id)
@@ -386,7 +490,6 @@ class LearningRepository:
                 .where(
                     DailyLesson.group_id == group_id,
                     DailyLesson.biz_date >= start_date,
-                    DailyLesson.biz_date <= datetime.now(UTC).date(),
                 )
                 .order_by(desc(DailyLesson.biz_date), DailyTask.id.asc())
                 .limit(limit)
@@ -449,6 +552,15 @@ class LearningRepository:
                 report.report_json = report_json
                 report.summary_text = summary_text
             await session.commit()
+
+    async def get_weekly_report(self, *, biz_week: str, user_id: int) -> WeeklyReport | None:
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(WeeklyReport).where(
+                    WeeklyReport.biz_week == biz_week,
+                    WeeklyReport.user_id == user_id,
+                )
+            )
 
     async def acquire_job_lock(self, *, job_name: str, biz_key: str) -> bool:
         async with self._session_factory() as session:
@@ -583,7 +695,6 @@ class LearningRepository:
                 .where(
                     DailyLesson.group_id == group_id,
                     DailyLesson.biz_date >= start.date(),
-                    DailyLesson.biz_date <= now.date(),
                 )
             )
             submitted_tasks = evidence["task_completion_count"]

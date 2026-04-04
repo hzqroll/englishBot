@@ -77,12 +77,21 @@ class AdminUiSettings(BaseModel):
     enable_http_login_warning: bool = True
 
 
+class MessageSettings(BaseModel):
+    render_mode: str = "hybrid"
+    enable_task_cards: bool = True
+    public_base_url: str = ""
+    link_expire_minutes: int = 60
+    card_fallback_to_text: bool = True
+
+
 class StaticConfig(BaseModel):
     bot: BotSettings = Field(default_factory=BotSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     content: ContentSettings = Field(default_factory=ContentSettings)
     learning: LearningSettings = Field(default_factory=LearningSettings)
     admin: AdminUiSettings = Field(default_factory=AdminUiSettings)
+    message: MessageSettings = Field(default_factory=MessageSettings)
 
 
 @dataclass(slots=True)

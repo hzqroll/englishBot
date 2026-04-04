@@ -1,0 +1,29 @@
+{% extends "learn_base.html" %}
+
+{% block content %}
+<section class="panel learn-panel">
+  <h2>本周英语小测</h2>
+  <p class="muted">试卷 ID：{{ page.session.id }}，状态：{{ page.session.status }}</p>
+  {% if submit_result %}
+  <div class="notice success">{{ submit_result }}</div>
+  {% endif %}
+</section>
+
+<form method="post" action="/learn/quiz/{{ token }}" class="setting-form">
+  {% for question in page.questions %}
+  {% set question_index = loop.index %}
+  {% set existing = page.answers.get(question.id) %}
+  <section class="panel learn-panel">
+    <h3>{{ loop.index }}. {{ question.stem }}</h3>
+    {% for option in question.options %}
+    <label class="radio-line">
+      <input type="radio" name="q_{{ question_index }}" value="{{ 'ABCD'[loop.index0] }}"
+      {% if existing and existing.user_answer == 'ABCD'[loop.index0] %}checked{% endif %}/>
+      <span>{{ 'ABCD'[loop.index0] }}. {{ option }}</span>
+    </label>
+    {% endfor %}
+  </section>
+  {% endfor %}
+  <button type="submit">提交整卷</button>
+</form>
+{% endblock %}

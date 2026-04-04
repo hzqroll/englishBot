@@ -1,0 +1,202 @@
+{
+  "id": "2026-04-04-141809",
+  "generated_at": "2026-04-04T06:18:09.345677Z",
+  "language": "zh",
+  "pages": [
+    {
+      "slug": "1-xiang-mu-gai-lan-qq-ying-yu-xue-xi-ji-qi-ren",
+      "title": "项目概览：QQ 英语学习机器人",
+      "file": "1-xiang-mu-gai-lan-qq-ying-yu-xue-xi-ji-qi-ren.md",
+      "section": "快速入门",
+      "level": "Beginner"
+    },
+    {
+      "slug": "2-kuai-su-qi-dong-ben-di-kai-fa-huan-jing-da-jian",
+      "title": "快速启动：本地开发环境搭建",
+      "file": "2-kuai-su-qi-dong-ben-di-kai-fa-huan-jing-da-jian.md",
+      "section": "快速入门",
+      "level": "Beginner"
+    },
+    {
+      "slug": "3-docker-bu-shu-yu-napcat-dui-jie",
+      "title": "Docker 部署与 NapCat 对接",
+      "file": "3-docker-bu-shu-yu-napcat-dui-jie.md",
+      "section": "快速入门",
+      "level": "Beginner"
+    },
+    {
+      "slug": "4-guan-li-hou-tai-yu-lian-diao-diao-shi-ye",
+      "title": "管理后台与联调调试页",
+      "file": "4-guan-li-hou-tai-yu-lian-diao-diao-shi-ye.md",
+      "section": "快速入门",
+      "level": "Beginner"
+    },
+    {
+      "slug": "5-zheng-ti-jia-gou-clean-architecture-si-ceng-fen-ceng",
+      "title": "整体架构：Clean Architecture 四层分层",
+      "file": "5-zheng-ti-jia-gou-clean-architecture-si-ceng-fen-ceng.md",
+      "section": "深入理解",
+      "level": "Beginner"
+    },
+    {
+      "slug": "6-atji-qi-ren-xiao-xi-chu-li-liu-cheng-yu-yan-jian-ce-fan-yi-yu-jiu-cuo",
+      "title": "@机器人 消息处理流程：语言检测、翻译与纠错",
+      "file": "6-atji-qi-ren-xiao-xi-chu-li-liu-cheng-yu-yan-jian-ce-fan-yi-yu-jiu-cuo.md",
+      "section": "深入理解",
+      "group": "消息处理与命令系统",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "7-gu-ding-ming-ling-zhu-ce-yu-fen-fa-ji-zhi",
+      "title": "固定命令注册与分发机制",
+      "file": "7-gu-ding-ming-ling-zhu-ce-yu-fen-fa-ji-zhi.md",
+      "section": "深入理解",
+      "group": "消息处理与命令系统",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "8-xiao-xi-xuan-ran-yu-tou-di-chun-wen-ben-yu-napcat-qia-pian",
+      "title": "消息渲染与投递：纯文本与 NapCat 卡片",
+      "file": "8-xiao-xi-xuan-ran-yu-tou-di-chun-wen-ben-yu-napcat-qia-pian.md",
+      "section": "深入理解",
+      "group": "消息处理与命令系统",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "9-ling-yu-shi-ti-yu-zhi-dui-xiang-she-ji",
+      "title": "领域实体与值对象设计",
+      "file": "9-ling-yu-shi-ti-yu-zhi-dui-xiang-she-ji.md",
+      "section": "深入理解",
+      "group": "领域模型与核心业务逻辑",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "10-cuo-wu-dian-ju-he-erroraggregator-yu-qu-zhong-qian-ming",
+      "title": "错误点聚合（ErrorAggregator）与去重签名",
+      "file": "10-cuo-wu-dian-ju-he-erroraggregator-yu-qu-zhong-qian-ming.md",
+      "section": "深入理解",
+      "group": "领域模型与核心业务逻辑",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "11-jian-ge-fu-xi-diao-du-reviewscheduler-yu-bei-zeng-ce-lue",
+      "title": "间隔复习调度（ReviewScheduler）与倍增策略",
+      "file": "11-jian-ge-fu-xi-diao-du-reviewscheduler-yu-bei-zeng-ce-lue.md",
+      "section": "深入理解",
+      "group": "领域模型与核心业务逻辑",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "12-yong-hu-fen-ji-xi-tong-levelservice",
+      "title": "用户分级系统（LevelService）",
+      "file": "12-yong-hu-fen-ji-xi-tong-levelservice.md",
+      "section": "深入理解",
+      "group": "领域模型与核心业务逻辑",
+      "level": "Beginner"
+    },
+    {
+      "slug": "13-shuang-ceng-pei-zhi-ti-xi-yun-xing-shi-pei-zhi-yu-jing-tai-pei-zhi",
+      "title": "双层配置体系：运行时配置与静态配置",
+      "file": "13-shuang-ceng-pei-zhi-ti-xi-yun-xing-shi-pei-zhi-yu-jing-tai-pei-zhi.md",
+      "section": "深入理解",
+      "group": "基础设施层",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "14-shou-dong-yi-lai-zhu-ru-rong-qi-servicecontainer",
+      "title": "手动依赖注入容器（ServiceContainer）",
+      "file": "14-shou-dong-yi-lai-zhu-ru-rong-qi-servicecontainer.md",
+      "section": "深入理解",
+      "group": "基础设施层",
+      "level": "Advanced"
+    },
+    {
+      "slug": "15-provider-mo-shi-teng-xun-fan-yi-yu-openai-jian-rong-da-mo-xing-ji-cheng",
+      "title": "Provider 模式：腾讯翻译与 OpenAI 兼容大模型集成",
+      "file": "15-provider-mo-shi-teng-xun-fan-yi-yu-openai-jian-rong-da-mo-xing-ji-cheng.md",
+      "section": "深入理解",
+      "group": "基础设施层",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "16-ted-rss-nei-rong-zhua-qu-yu-nei-zhi-duan-wen-hui-tui",
+      "title": "TED RSS 内容抓取与内置短文回退",
+      "file": "16-ted-rss-nei-rong-zhua-qu-yu-nei-zhi-duan-wen-hui-tui.md",
+      "section": "深入理解",
+      "group": "基础设施层",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "17-sqlite-shu-ju-ku-mo-xing-yu-repository-shu-ju-fang-wen",
+      "title": "SQLite 数据库模型与 Repository 数据访问",
+      "file": "17-sqlite-shu-ju-ku-mo-xing-yu-repository-shu-ju-fang-wen.md",
+      "section": "深入理解",
+      "group": "基础设施层",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "18-qia-pian-lian-jie-qian-ming-yu-guo-qi-yan-zheng-cardlinksigner",
+      "title": "卡片链接签名与过期验证（CardLinkSigner）",
+      "file": "18-qia-pian-lian-jie-qian-ming-yu-guo-qi-yan-zheng-cardlinksigner.md",
+      "section": "深入理解",
+      "group": "基础设施层",
+      "level": "Advanced"
+    },
+    {
+      "slug": "19-lru-shang-xia-wen-huan-cun-contextstore",
+      "title": "LRU 上下文缓存（ContextStore）",
+      "file": "19-lru-shang-xia-wen-huan-cun-contextstore.md",
+      "section": "深入理解",
+      "group": "基础设施层",
+      "level": "Beginner"
+    },
+    {
+      "slug": "20-apscheduler-ding-shi-ren-wu-zhu-ce-yu-zhi-xing",
+      "title": "APScheduler 定时任务注册与执行",
+      "file": "20-apscheduler-ding-shi-ren-wu-zhu-ce-yu-zhi-xing.md",
+      "section": "深入理解",
+      "group": "定时任务与调度",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "21-fen-bu-shi-ren-wu-suo-yu-mi-deng-bao-hu",
+      "title": "分布式任务锁与幂等保护",
+      "file": "21-fen-bu-shi-ren-wu-suo-yu-mi-deng-bao-hu.md",
+      "section": "深入理解",
+      "group": "定时任务与调度",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "22-fastapi-guan-li-hou-tai-yi-biao-pan-yong-hu-guan-li-yu-yun-xing-shi-pei-zhi",
+      "title": "FastAPI 管理后台：仪表盘、用户管理与运行时配置",
+      "file": "22-fastapi-guan-li-hou-tai-yi-biao-pan-yong-hu-guan-li-yu-yun-xing-shi-pei-zhi.md",
+      "section": "深入理解",
+      "group": "管理后台与学习页",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "23-mian-deng-lu-qian-ming-xue-xi-ye-ren-wu-zhou-ce-yu-zhou-bao",
+      "title": "免登录签名学习页：任务、周测与周报",
+      "file": "23-mian-deng-lu-qian-ming-xue-xi-ye-ren-wu-zhou-ce-yu-zhou-bao.md",
+      "section": "深入理解",
+      "group": "管理后台与学习页",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "24-ce-shi-ti-xi-pytest-yi-bu-ce-shi-yu-provider-mock",
+      "title": "测试体系：pytest 异步测试与 Provider Mock",
+      "file": "24-ce-shi-ti-xi-pytest-yi-bu-ce-shi-yu-provider-mock.md",
+      "section": "深入理解",
+      "group": "开发实践",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "25-kuo-zhan-zhi-nan-tian-jia-xin-ming-ling-yu-xin-provider",
+      "title": "扩展指南：添加新命令与新 Provider",
+      "file": "25-kuo-zhan-zhi-nan-tian-jia-xin-ming-ling-yu-xin-provider.md",
+      "section": "深入理解",
+      "group": "开发实践",
+      "level": "Advanced"
+    }
+  ]
+}

@@ -81,6 +81,7 @@ body {
 }
 
 input,
+select,
 textarea,
 button {
   width: 100%;
@@ -110,4 +111,72 @@ button {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.checkbox-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-line input {
+  width: auto;
+}
+
+.debug-result {
+  white-space: pre-wrap;
+  background: #f5f8ff;
+  border: 1px solid #d8e4fb;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.learn-body {
+  background: linear-gradient(180deg, #f4f8ff 0%, #eef6ff 100%);
+}
+
+.learn-shell {
+  width: min(860px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding: 20px 0 40px;
+}
+
+.learn-panel {
+  margin-bottom: 16px;
+}
+
+.transcript-box {
+  white-space: pre-wrap;
+  background: #f5f8ff;
+  border: 1px solid #d8e4fb;
+  border-radius: 12px;
+  padding: 14px;
+  line-height: 1.6;
+}
+
+.muted {
+  color: #5b6c88;
+}
+
+.notice {
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 12px 0;
+}
+
+.notice.success {
+  background: #edf9f1;
+  color: #115b31;
+}
+
+.radio-line {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 10px 0;
+}
+
+.radio-line input {
+  width: auto;
+  margin-top: 3px;
 }

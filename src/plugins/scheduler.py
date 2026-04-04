@@ -9,7 +9,8 @@ from nonebot.log import logger
 from nonebot_plugin_apscheduler import scheduler
 from sqlalchemy.engine import make_url
 
-from src.infrastructure.settings.container import get_container
+from src.domain.value_objects.messaging import MessageEnvelope
+from src.infrastructure.settings.container import get_container, get_or_init_container
 
 
 def register_jobs() -> None:
@@ -54,7 +55,7 @@ def register_jobs() -> None:
 
 
 async def daily_push_job() -> None:
-    container = get_container()
+    container = await get_or_init_container()
     await container.runtime_config.refresh()
     biz_key = datetime.now(UTC).strftime("%Y-%m-%d")
     if not await container.learning_repo.acquire_job_lock(job_name="daily_push", biz_key=biz_key):
@@ -64,7 +65,12 @@ async def daily_push_job() -> None:
         for group_id in container.runtime_config.enabled_group_ids():
             await container.learning_usecase.build_today_lesson(qq_group_id=group_id)
             message = await container.learning_usecase.get_today_task_message(qq_group_id=group_id)
-            await _send_group_message(bots=bots, group_id=group_id, message=message)
+            await _send_group_envelope(
+                container=container,
+                bots=bots,
+                group_id=group_id,
+                envelope=MessageEnvelope(plain_text=message),
+            )
         await container.learning_repo.finish_job_lock(job_name="daily_push", biz_key=biz_key, status="success")
     except Exception:
         logger.exception("daily push job failed")
@@ -72,7 +78,7 @@ async def daily_push_job() -> None:
 
 
 async def daily_reminder_job() -> None:
-    container = get_container()
+    container = await get_or_init_container()
     await container.runtime_config.refresh()
     biz_key = datetime.now(UTC).strftime("%Y-%m-%d")
     if not await container.learning_repo.acquire_job_lock(job_name="daily_reminder", biz_key=biz_key):
@@ -82,7 +88,12 @@ async def daily_reminder_job() -> None:
         if container.runtime_config.daily_reminder_enabled():
             for group_id in container.runtime_config.enabled_group_ids():
                 reminder = "今晚记得完成今日任务。如果已经完成，可以发送“复习一下”巩固旧错误点。"
-                await _send_group_message(bots=bots, group_id=group_id, message=reminder)
+                await _send_group_envelope(
+                    container=container,
+                    bots=bots,
+                    group_id=group_id,
+                    envelope=MessageEnvelope(plain_text=reminder),
+                )
         await container.learning_repo.finish_job_lock(job_name="daily_reminder", biz_key=biz_key, status="success")
     except Exception:
         logger.exception("daily reminder job failed")
@@ -90,7 +101,7 @@ async def daily_reminder_job() -> None:
 
 
 async def weekly_report_job() -> None:
-    container = get_container()
+    container = await get_or_init_container()
     await container.runtime_config.refresh()
     biz_key = datetime.now(UTC).strftime("%G-W%V")
     if not await container.learning_repo.acquire_job_lock(job_name="weekly_report", biz_key=biz_key):
@@ -101,13 +112,18 @@ async def weekly_report_job() -> None:
             group = await container.identity_repo.ensure_group(group_id)
             users = await container.identity_repo.list_enrolled_users(group.id)
             for user in users:
-                report = await container.report_usecase.build_weekly_report(
+                report = await container.report_usecase.build_weekly_report_envelope(
                     qq_group_id=group_id,
                     qq_user_id=user.qq_user_id,
                     nickname=user.nickname,
                 )
-                message = f"[CQ:at,qq={user.qq_user_id}] \n{report}"
-                await _send_group_message(bots=bots, group_id=group_id, message=message)
+                await _send_group_envelope(
+                    container=container,
+                    bots=bots,
+                    group_id=group_id,
+                    envelope=report,
+                    mention_qq=user.qq_user_id,
+                )
         await container.learning_repo.finish_job_lock(job_name="weekly_report", biz_key=biz_key, status="success")
     except Exception:
         logger.exception("weekly report job failed")
@@ -115,7 +131,7 @@ async def weekly_report_job() -> None:
 
 
 async def weekly_quiz_job() -> None:
-    container = get_container()
+    container = await get_or_init_container()
     await container.runtime_config.refresh()
     biz_key = datetime.now(UTC).strftime("%G-W%V")
     if not await container.learning_repo.acquire_job_lock(job_name="weekly_quiz", biz_key=biz_key):
@@ -126,13 +142,18 @@ async def weekly_quiz_job() -> None:
             group = await container.identity_repo.ensure_group(group_id)
             users = await container.identity_repo.list_enrolled_users(group.id)
             for user in users:
-                quiz = await container.quiz_usecase.start_weekly_quiz(
+                quiz = await container.quiz_usecase.start_weekly_quiz_envelope(
                     qq_group_id=group_id,
                     qq_user_id=user.qq_user_id,
                     nickname=user.nickname,
                 )
-                message = f"[CQ:at,qq={user.qq_user_id}] \n{quiz}"
-                await _send_group_message(bots=bots, group_id=group_id, message=message)
+                await _send_group_envelope(
+                    container=container,
+                    bots=bots,
+                    group_id=group_id,
+                    envelope=quiz,
+                    mention_qq=user.qq_user_id,
+                )
         await container.learning_repo.finish_job_lock(job_name="weekly_quiz", biz_key=biz_key, status="success")
     except Exception:
         logger.exception("weekly quiz job failed")
@@ -140,7 +161,7 @@ async def weekly_quiz_job() -> None:
 
 
 async def nightly_backup_job() -> None:
-    container = get_container()
+    container = await get_or_init_container()
     await container.runtime_config.refresh()
     biz_key = datetime.now(UTC).strftime("%Y-%m-%d")
     if not await container.learning_repo.acquire_job_lock(job_name="nightly_backup", biz_key=biz_key):
@@ -172,10 +193,13 @@ def _cron_kwargs(expression: str) -> dict[str, str]:
     }
 
 
-async def _send_group_message(*, bots: list, group_id: str, message: str) -> None:
-    for bot in bots:
-        try:
-            await bot.send_group_msg(group_id=int(group_id), message=message)
-            return
-        except Exception:
-            logger.exception("failed to send message to group %s", group_id)
+async def _send_group_envelope(*, container, bots: list, group_id: str, envelope: MessageEnvelope, mention_qq: str | None = None) -> None:
+    try:
+        await container.message_delivery_service.send_group_envelope(
+            bots=bots,
+            group_id=group_id,
+            envelope=envelope,
+            mention_qq=mention_qq,
+        )
+    except Exception:
+        logger.exception("failed to send message to group %s", group_id)

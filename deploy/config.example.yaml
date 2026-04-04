@@ -33,3 +33,10 @@ learning:
 admin:
   title: "English Bot Admin"
   enable_http_login_warning: true
+
+message:
+  render_mode: hybrid
+  enable_task_cards: true
+  public_base_url: ""
+  link_expire_minutes: 60
+  card_fallback_to_text: true

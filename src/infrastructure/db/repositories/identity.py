@@ -12,6 +12,14 @@ class IdentityRepository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    async def get_group_by_qq_group_id(self, qq_group_id: str) -> Group | None:
+        async with self._session_factory() as session:
+            return await session.scalar(select(Group).where(Group.qq_group_id == qq_group_id))
+
+    async def get_user_by_qq_user_id(self, qq_user_id: str) -> User | None:
+        async with self._session_factory() as session:
+            return await session.scalar(select(User).where(User.qq_user_id == qq_user_id))
+
     async def ensure_group(self, qq_group_id: str, name: str = "") -> Group:
         async with self._session_factory() as session:
             group = await session.scalar(select(Group).where(Group.qq_group_id == qq_group_id))

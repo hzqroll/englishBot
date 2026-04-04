@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from src.domain.services.leveling import LearningEvidence, LevelService
+from src.domain.value_objects.messaging import MessageEnvelope
+from src.infrastructure.auth.card_links import CardLinkSigner
 from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
+from src.infrastructure.messaging.renderers import NapCatCardRenderer
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
+from src.infrastructure.settings.runtime import RuntimeConfigService
 
 
 class ReportUseCase:
@@ -16,17 +20,39 @@ class ReportUseCase:
         learning_repo: LearningRepository,
         summary_provider: OpenAICompatibleProvider,
         level_service: LevelService,
+        runtime_config: RuntimeConfigService,
+        card_link_signer: CardLinkSigner,
+        napcat_card_renderer: NapCatCardRenderer,
     ) -> None:
         self._identity_repo = identity_repo
         self._learning_repo = learning_repo
         self._summary_provider = summary_provider
         self._level_service = level_service
+        self._runtime_config = runtime_config
+        self._card_link_signer = card_link_signer
+        self._napcat_card_renderer = napcat_card_renderer
 
     async def build_weekly_report(self, *, qq_group_id: str, qq_user_id: str, nickname: str) -> str:
+        return (
+            await self.build_weekly_report_envelope(
+                qq_group_id=qq_group_id,
+                qq_user_id=qq_user_id,
+                nickname=nickname,
+            )
+        ).plain_text
+
+    async def build_weekly_report_envelope(
+        self,
+        *,
+        qq_group_id: str,
+        qq_user_id: str,
+        nickname: str,
+        base_url_override: str | None = None,
+    ) -> MessageEnvelope:
         group = await self._identity_repo.ensure_group(qq_group_id)
         user = await self._identity_repo.ensure_user(qq_user_id, nickname)
         if not await self._identity_repo.is_enrolled(user.id, group.id):
-            return "你还没有报名学习。"
+            return MessageEnvelope(plain_text="你还没有报名学习。")
 
         week_key = datetime.now(UTC).strftime("%G-W%V")
         stats = await self._learning_repo.get_weekly_report_stats(
@@ -86,7 +112,7 @@ class ReportUseCase:
         weak_points = "、".join(self._label_error_type(item) for item in stats["weak_points"]) or "暂无明显高频薄弱项"
         weak_examples = "；".join(weak_details) or "本周没有沉淀新的典型错误片段。"
         level_label = "初级" if level == "beginner" else "中级"
-        return (
+        plain_text = (
             f"周报 {week_key}\n"
             f"- 学习天数：{stats['learning_days']} 天\n"
             f"- 本周完成率：{stats['task_completion_rate']:.0%}\n"
@@ -97,6 +123,29 @@ class ReportUseCase:
             f"- 薄弱点：{weak_points}\n"
             f"- 典型错误：{weak_examples}\n"
             f"- 总结：{summary_text}"
+        )
+        card_link_url = self._build_card_link(
+            resource_type="report",
+            resource_id=week_key,
+            qq_user_id=qq_user_id,
+            qq_group_id=qq_group_id,
+            base_url_override=base_url_override,
+        )
+        if not card_link_url:
+            return MessageEnvelope(plain_text=plain_text)
+
+        card_payload = self._napcat_card_renderer.build_click_card(
+            title=f"{week_key} 学习周报",
+            summary=f"学习 {stats['learning_days']} 天，完成率 {stats['task_completion_rate']:.0%}。",
+            url=card_link_url,
+            action_label="查看周报",
+        )
+        return MessageEnvelope(
+            plain_text=plain_text,
+            fallback_text=f"{plain_text}\n\n周报页：{card_link_url}",
+            card_payload=card_payload,
+            card_link_url=card_link_url,
+            card_title=f"{week_key} 学习周报",
         )
 
     def _label_error_type(self, error_type: str) -> str:
@@ -111,3 +160,25 @@ class ReportUseCase:
             "natural_expression": "表达自然度",
         }
         return labels.get(error_type, error_type)
+
+    def _build_card_link(
+        self,
+        *,
+        resource_type: str,
+        resource_id: str,
+        qq_user_id: str,
+        qq_group_id: str,
+        base_url_override: str | None,
+    ) -> str | None:
+        base_url = (base_url_override or self._runtime_config.public_base_url()).rstrip("/")
+        if not base_url:
+            return None
+        expires_at = datetime.now(UTC) + timedelta(minutes=self._runtime_config.link_expire_minutes())
+        token = self._card_link_signer.sign(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            qq_user_id=qq_user_id,
+            qq_group_id=qq_group_id,
+            expires_at=expires_at,
+        )
+        return f"{base_url}/learn/report/{token}"

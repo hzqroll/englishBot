@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="header">
+  <h2>联调调试</h2>
+  <p>不进 QQ 也可以直接测试翻译、纠错与落库链路。</p>
+</header>
+
+<section class="panel">
+  <form method="post" action="/admin/debug" class="setting-form">
+    <label>调试文本</label>
+    <textarea name="message_text" rows="4" required>{{ form_data.message_text if form_data else "" }}</textarea>
+    <label>群号（用于模拟事件上下文）</label>
+    <input type="text" name="group_id" value="{{ form_data.group_id if form_data else default_group_id }}" required />
+    <label>用户 ID（模拟）</label>
+    <input type="text" name="user_id" value="{{ form_data.user_id if form_data else 'debug-user-1' }}" required />
+    <label>昵称（模拟）</label>
+    <input type="text" name="nickname" value="{{ form_data.nickname if form_data else 'Debugger' }}" required />
+    <label class="checkbox-line">
+      <input type="checkbox" name="persist_to_db" {% if form_data and form_data.persist_to_db %}checked{% endif %}/>
+      写入 SQLite（会落 message_events / interaction_results / error_points）
+    </label>
+    <button type="submit">执行调试</button>
+  </form>
+</section>
+
+{% if result %}
+<section class="panel">
+  <h3>调试结果</h3>
+  <p><strong>模式：</strong>{{ result.mode }}</p>
+  <p><strong>检测语言：</strong>{{ result.detected_language }}</p>
+  <p><strong>Provider：</strong>{{ result.provider }}</p>
+  <pre class="debug-result">{{ result.reply }}</pre>
+</section>
+{% endif %}
+
+{% if result and result.receipt %}
+<section class="panel">
+  <h3>数据库回执</h3>
+  <p><strong>event_id：</strong>{{ result.receipt.event_id }}</p>
+  <p><strong>raw_event_id：</strong>{{ result.receipt.raw_event_id }}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>表</th>
+        <th>本次增量</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for key, value in result.receipt.delta.items() %}
+      <tr>
+        <td>{{ key }}</td>
+        <td>{{ value }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

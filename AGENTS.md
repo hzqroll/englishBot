@@ -63,6 +63,15 @@ SQLite + SQLAlchemy 2.0 async（aiosqlite）。ORM 模型在 `src/infrastructure
 
 QQ 群 @机器人 → NoneBot2（OneBot v11）→ `plugins/at_message.py` 或 `plugins/commands.py` → 对应 UseCase → 领域服务 + Provider → 持久化 → 回复
 
+### 消息渲染与卡片
+
+UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`），同时携带纯文本和卡片数据。`MessageDeliveryService`（`src/infrastructure/messaging/`）根据配置选择渲染策略：
+
+- `PlainTextRenderer`：纯文本 + CQ 码
+- `NapCatCardRenderer`：JSON 卡片消息
+
+渲染链路：先尝试卡片 → 失败时回退纯文本（需 `card_fallback_to_text` 开启）。卡片中的学习页链接通过 `CardLinkSigner`（`src/infrastructure/auth/card_links.py`）签名，支持过期校验。
+
 ### 关键领域逻辑
 
 - **纠错聚合**（`ErrorAggregator`）：按签名去重 error_points
@@ -70,10 +79,18 @@ QQ 群 @机器人 → NoneBot2（OneBot v11）→ `plugins/at_message.py` 或 `p
 - **分级系统**（`LevelService`）：基于活跃度 + 测验分数的 beginner/intermediate 两级
 - **上下文缓存**（`ContextStore`）：LRU 缓存，15 分钟 TTL
 
+### 管理后台
+
+`src/admin/routes.py` 中 FastAPI 路由，Session 认证。关键页面：
+- `/admin/debug` — 无需 QQ 即可测试翻译/纠错流程
+- `/admin/cards` — 生成任务/周测/周报的本地签名链接预览
+- 运行时配置覆盖通过 `RuntimeConfigService` 实现热更新
+
 ## 开发约定
 
 - Python 3.12，异步优先（async/await）
 - 测试框架：pytest + pytest-asyncio（`asyncio_mode = "auto"`）
 - 包管理：uv
-- 无 Alembic 迁移脚本的硬性要求，当前使用启动时 auto-create
+- `alembic/` 目录已初始化但当前使用启动时 auto-create，非强制迁移
 - Provider 缺少配置时走降级而非报错
+- 测试用轻量 stub 类注入依赖，数据库测试用 `tmp_path` 临时 SQLite，不依赖 mock 框架

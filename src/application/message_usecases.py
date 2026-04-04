@@ -81,7 +81,11 @@ class MessageUseCase:
         await self._learning_repo.create_interaction_result(
             event_id=event.id,
             action_type=action_type,
-            provider="google+doubao" if detected != LanguageType.ENGLISH else "doubao",
+            provider=(
+                "tencent+openai_compatible"
+                if detected != LanguageType.ENGLISH
+                else "openai_compatible"
+            ),
             reply_text=reply,
         )
         self._context_store.put(
