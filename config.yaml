@@ -4,11 +4,11 @@ bot:
   admin_group_ids:
     - "204257012"
   context_ttl_minutes: 15
-  daily_reminder_enabled: true
 
 scheduler:
   daily_push_cron: "0 8 * * *"
-  daily_reminder_cron: "0 20 * * *"
+  daily_error_digest_cron: "0 18 * * *"
+  daily_progress_cron: "0 20 * * *"
   weekly_report_cron: "0 9 * * 1"
   weekly_quiz_cron: "0 19 * * 0"
   nightly_backup_cron: "0 2 * * *"
@@ -35,8 +35,6 @@ admin:
   enable_http_login_warning: true
 
 message:
-  render_mode: hybrid
+  render_mode: image_card
   enable_task_cards: true
-  public_base_url: ""
-  link_expire_minutes: 60
   card_fallback_to_text: true

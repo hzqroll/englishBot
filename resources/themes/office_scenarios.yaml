@@ -1,0 +1,40 @@
+- theme_key: reschedule_meeting
+  title: Rescheduling a Meeting
+  scene: 会议改期
+  opening: 学会在办公室里礼貌地改会议时间，并说明原因。
+  core_tags: [meeting]
+  support_tags: [meeting]
+  dialogue_template:
+    - "A: Hi Tom, could we reschedule the meeting?"
+    - "B: Sure. Is there any issue?"
+    - "A: Yes, I have a conflict this afternoon."
+    - "B: No problem. Would tomorrow morning work better for you?"
+    - "A: Yes, that works better for me. Let's confirm it for 10 a.m."
+    - "B: Great. Please keep me updated if anything changes."
+  task_templates:
+    - type: vocab_check
+      prompt: 请任选今天的 2 个表达，各写一句中文含义和一个办公室使用场景。
+    - type: scenario_reply
+      prompt: 请用今天至少 2 个表达，回复这句话：Can we move the meeting to Friday afternoon?
+    - type: rewrite
+      prompt: 把这句中文翻成更自然的英文：因为时间冲突，我想把会议改到明天上午。
+
+- theme_key: project_update
+  title: Giving a Project Update
+  scene: 项目进度同步
+  opening: 学会用英语汇报进展、说明问题并提出下一步。
+  core_tags: [project_update]
+  support_tags: [project_update]
+  dialogue_template:
+    - "A: Could you provide a quick update on the client project?"
+    - "B: Sure. Overall, the work is on track, but we ran into an issue with the testing environment."
+    - "A: What is the main blocker right now?"
+    - "B: We're waiting for access approval. The next step is to follow up with IT."
+    - "A: Okay, let's align again tomorrow afternoon."
+  task_templates:
+    - type: vocab_check
+      prompt: 从今天的内容里选 3 个表达，说明它们分别适合在什么项目场景使用。
+    - type: scenario_reply
+      prompt: 请用今天至少 2 个表达，写一句项目进度同步回复。
+    - type: rewrite
+      prompt: 把这句中文翻成更自然的英文：目前整体进展顺利，但我们遇到了一个阻塞项。

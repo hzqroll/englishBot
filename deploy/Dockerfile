@@ -3,7 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -18,4 +18,3 @@ RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 EXPOSE 8080
 
 CMD ["python", "-m", "src.main"]
-

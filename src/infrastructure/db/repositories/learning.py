@@ -1,25 +1,34 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.domain.services.error_taxonomy import categorize_error_type
+from src.domain.value_objects.conversation import ConversationEvidencePayload
 from src.domain.value_objects.learning import ErrorPointPayload, LessonBundle
 from src.infrastructure.db.models import (
+    ConversationEvidence,
     ContentItem,
+    DailyCardSnapshot,
     DailyLesson,
+    DailyLearningSnapshot,
     DailyTask,
+    DailyTargetItem,
     Enrollment,
+    ErrorOccurrence,
     ErrorPoint,
     InteractionResult,
     JobRun,
     MessageEvent,
+    MessageDeliveryLog,
     PointsLedger,
     QuizQuestion,
     QuizSession,
     QuizAnswer,
+    ReviewCandidate,
     ReviewItem,
     RuntimeSetting,
     Streak,
@@ -33,6 +42,20 @@ class LearningRepository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    def _local_day_bounds(self, target_date: date) -> tuple[datetime, datetime]:
+        local_tz = datetime.now().astimezone().tzinfo or UTC
+        start_local = datetime.combine(target_date, time.min, tzinfo=local_tz)
+        end_local = start_local + timedelta(days=1)
+        return start_local.astimezone(UTC), end_local.astimezone(UTC)
+
+    @staticmethod
+    def _error_signature(payload: ErrorPointPayload) -> tuple[str, str, str]:
+        return (
+            payload.error_type.strip().lower(),
+            payload.source_fragment.strip(),
+            payload.correct_fragment.strip(),
+        )
+
     async def create_message_event(
         self,
         *,
@@ -41,14 +64,31 @@ class LearningRepository:
         user_id: int,
         message_text: str,
         event_type: str,
+        source_type: str = "unknown",
+        is_to_bot: bool = False,
+        is_command: bool = False,
+        language_guess: str = "unknown",
+        analysis_status: str = "pending",
+        biz_date_local: date | None = None,
     ) -> MessageEvent:
         async with self._session_factory() as session:
+            existing = await session.scalar(
+                select(MessageEvent).where(MessageEvent.raw_event_id == raw_event_id)
+            )
+            if existing is not None:
+                return existing
             message_event = MessageEvent(
                 raw_event_id=raw_event_id,
                 group_id=group_id,
                 user_id=user_id,
                 message_text=message_text,
                 event_type=event_type,
+                source_type=source_type,
+                is_to_bot=is_to_bot,
+                is_command=is_command,
+                language_guess=language_guess,
+                analysis_status=analysis_status,
+                biz_date_local=biz_date_local or datetime.now().astimezone().date(),
             )
             session.add(message_event)
             await session.commit()
@@ -119,12 +159,104 @@ class LearningRepository:
                     (ErrorPoint.group_id == group_id) | (ReviewItem.error_point_id.is_(None)),
                 )
             )
+            conversation_evidences = await session.scalar(
+                select(func.count())
+                .select_from(ConversationEvidence)
+                .where(
+                    ConversationEvidence.user_id == user_id,
+                    ConversationEvidence.group_id == group_id,
+                )
+            )
             return {
                 "message_events": int(message_events or 0),
                 "interaction_results": int(interaction_results or 0),
                 "error_points": int(error_points or 0),
                 "review_items": int(review_items or 0),
+                "conversation_evidences": int(conversation_evidences or 0),
             }
+
+    async def create_conversation_evidences(
+        self,
+        *,
+        message_event_id: int,
+        user_id: int,
+        group_id: int,
+        biz_date: date,
+        payloads: list[ConversationEvidencePayload],
+    ) -> None:
+        if not payloads:
+            return
+        async with self._session_factory() as session:
+            for payload in payloads:
+                session.add(
+                    ConversationEvidence(
+                        message_event_id=message_event_id,
+                        user_id=user_id,
+                        group_id=group_id,
+                        biz_date=biz_date,
+                        evidence_type=payload.evidence_type,
+                        evidence_score=payload.evidence_score,
+                        payload_json=payload.payload_json,
+                    )
+                )
+            await session.commit()
+
+    async def list_conversation_evidences_for_message(self, *, message_event_id: int) -> list[ConversationEvidence]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(ConversationEvidence)
+                .where(ConversationEvidence.message_event_id == message_event_id)
+                .order_by(ConversationEvidence.id.asc())
+            )
+            return list(rows)
+
+    async def get_user_day_conversation_materials(
+        self,
+        *,
+        user_id: int,
+        group_id: int,
+        target_date: date,
+    ) -> list[dict[str, Any]]:
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                select(MessageEvent, ConversationEvidence)
+                .join(
+                    ConversationEvidence,
+                    ConversationEvidence.message_event_id == MessageEvent.id,
+                    isouter=True,
+                )
+                .where(
+                    MessageEvent.user_id == user_id,
+                    MessageEvent.group_id == group_id,
+                    MessageEvent.biz_date_local == target_date,
+                )
+                .order_by(MessageEvent.created_at.asc(), ConversationEvidence.id.asc())
+            )
+            grouped: dict[int, dict[str, Any]] = {}
+            for message_event, evidence in rows:
+                item = grouped.setdefault(
+                    message_event.id,
+                    {
+                        "event_id": message_event.id,
+                        "raw_event_id": message_event.raw_event_id,
+                        "message_text": message_event.message_text,
+                        "source_type": message_event.source_type,
+                        "event_type": message_event.event_type,
+                        "language_guess": message_event.language_guess,
+                        "analysis_status": message_event.analysis_status,
+                        "created_at": message_event.created_at,
+                        "evidences": [],
+                    },
+                )
+                if evidence is not None:
+                    item["evidences"].append(
+                        {
+                            "evidence_type": evidence.evidence_type,
+                            "evidence_score": evidence.evidence_score,
+                            "payload_json": evidence.payload_json,
+                        }
+                    )
+            return list(grouped.values())
 
     async def upsert_error_points(
         self,
@@ -168,6 +300,48 @@ class LearningRepository:
             for item in stored:
                 await session.refresh(item)
             return stored
+
+    async def create_error_occurrences(
+        self,
+        *,
+        event_id: int,
+        user_id: int,
+        group_id: int,
+        payloads: list[ErrorPointPayload],
+        error_point_ids: list[int | None] | None = None,
+        created_at: datetime | None = None,
+    ) -> None:
+        if not payloads:
+            return
+        error_point_ids = error_point_ids or [None] * len(payloads)
+        created_at = created_at or datetime.now(UTC)
+        async with self._session_factory() as session:
+            for payload, error_point_id in zip(payloads, error_point_ids, strict=False):
+                existing = await session.scalar(
+                    select(ErrorOccurrence).where(
+                        ErrorOccurrence.event_id == event_id,
+                        ErrorOccurrence.error_type == payload.error_type,
+                        ErrorOccurrence.source_fragment == payload.source_fragment,
+                        ErrorOccurrence.correct_fragment == payload.correct_fragment,
+                    )
+                )
+                if existing is not None:
+                    continue
+                session.add(
+                    ErrorOccurrence(
+                        event_id=event_id,
+                        user_id=user_id,
+                        group_id=group_id,
+                        error_point_id=error_point_id,
+                        error_category=categorize_error_type(payload.error_type),
+                        error_type=payload.error_type,
+                        source_fragment=payload.source_fragment,
+                        correct_fragment=payload.correct_fragment,
+                        explanation=payload.explanation,
+                        created_at=created_at,
+                    )
+                )
+            await session.commit()
 
     async def ensure_review_items(
         self,
@@ -237,10 +411,28 @@ class LearningRepository:
                     biz_date=bundle.biz_date,
                     group_id=group_id,
                     content_item_id=content.id,
+                    theme_key=bundle.theme_key,
+                    title=bundle.title,
+                    package_snapshot_json=bundle.package_snapshot or {},
                     status="published",
                 )
                 session.add(lesson)
                 await session.flush()
+                for index, target in enumerate(bundle.target_items, start=1):
+                    session.add(
+                        DailyTargetItem(
+                            lesson_id=lesson.id,
+                            entry_key=target.entry_key,
+                            entry_type=target.entry_type,
+                            text=target.text,
+                            phonetic=target.phonetic,
+                            meaning_zh=target.meaning_zh,
+                            usage_scene=target.usage_scene,
+                            example=target.example,
+                            target_role=target.target_role,
+                            sort_order=index,
+                        )
+                    )
                 for task in bundle.tasks:
                     session.add(
                         DailyTask(
@@ -251,6 +443,10 @@ class LearningRepository:
                             score_weight=task.score_weight,
                         )
                     )
+            else:
+                lesson.theme_key = bundle.theme_key or lesson.theme_key
+                lesson.title = bundle.title or lesson.title
+                lesson.package_snapshot_json = bundle.package_snapshot or lesson.package_snapshot_json or {}
             await session.commit()
             await session.refresh(lesson)
             return lesson
@@ -303,6 +499,354 @@ class LearningRepository:
                 .order_by(DailyTask.id.asc())
             )
             return list(tasks)
+
+    async def get_target_items_for_lesson(self, *, lesson_id: int) -> list[DailyTargetItem]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(DailyTargetItem)
+                .where(DailyTargetItem.lesson_id == lesson_id)
+                .order_by(DailyTargetItem.sort_order.asc(), DailyTargetItem.id.asc())
+            )
+            return list(rows)
+
+    async def get_target_terms_for_group_date(self, *, group_id: int, biz_date: date) -> set[str]:
+        async with self._session_factory() as session:
+            lesson = await session.scalar(
+                select(DailyLesson).where(
+                    DailyLesson.group_id == group_id,
+                    DailyLesson.biz_date == biz_date,
+                )
+            )
+            if lesson is None:
+                return set()
+            rows = await session.scalars(
+                select(DailyTargetItem.text).where(DailyTargetItem.lesson_id == lesson.id)
+            )
+            result: set[str] = set()
+            for item in rows:
+                normalized = (item or "").strip().lower()
+                if not normalized:
+                    continue
+                result.add(normalized)
+                result.update(part for part in normalized.split() if len(part) >= 4)
+            return result
+
+    async def replace_review_candidates(
+        self,
+        *,
+        user_id: int,
+        group_id: int,
+        biz_date: date,
+        candidates: list[dict[str, Any]],
+    ) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                ReviewCandidate.__table__.delete().where(
+                    ReviewCandidate.user_id == user_id,
+                    ReviewCandidate.group_id == group_id,
+                    ReviewCandidate.biz_date == biz_date,
+                )
+            )
+            for item in candidates:
+                session.add(
+                    ReviewCandidate(
+                        biz_date=biz_date,
+                        user_id=user_id,
+                        group_id=group_id,
+                        source_type=item["source_type"],
+                        source_ref_id=item.get("source_ref_id"),
+                        content_text=item["content_text"],
+                        correct_text=item.get("correct_text", ""),
+                        priority_score=int(item.get("priority_score", 0)),
+                        selected_for_next_day=bool(item.get("selected_for_next_day", True)),
+                        used_in_next_day_task=bool(item.get("used_in_next_day_task", False)),
+                        recalled_successfully=item.get("recalled_successfully"),
+                    )
+                )
+            await session.commit()
+
+    async def list_review_candidates(
+        self,
+        *,
+        user_id: int,
+        group_id: int,
+        biz_date: date,
+    ) -> list[ReviewCandidate]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(ReviewCandidate)
+                .where(
+                    ReviewCandidate.user_id == user_id,
+                    ReviewCandidate.group_id == group_id,
+                    ReviewCandidate.biz_date == biz_date,
+                )
+                .order_by(desc(ReviewCandidate.priority_score), ReviewCandidate.id.asc())
+            )
+            return list(rows)
+
+    async def list_group_review_candidates(
+        self,
+        *,
+        group_id: int,
+        biz_date: date,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                select(
+                    ReviewCandidate.content_text,
+                    ReviewCandidate.correct_text,
+                    func.max(ReviewCandidate.priority_score).label("priority_score"),
+                    func.count().label("hit_count"),
+                )
+                .where(
+                    ReviewCandidate.group_id == group_id,
+                    ReviewCandidate.biz_date == biz_date,
+                    ReviewCandidate.selected_for_next_day.is_(True),
+                )
+                .group_by(ReviewCandidate.content_text, ReviewCandidate.correct_text)
+                .order_by(desc("priority_score"), desc("hit_count"))
+                .limit(limit)
+            )
+            return [
+                {
+                    "content_text": row[0],
+                    "correct_text": row[1],
+                    "priority_score": int(row[2] or 0),
+                    "hit_count": int(row[3] or 0),
+                }
+                for row in rows.all()
+            ]
+
+    async def mark_review_candidates_used(
+        self,
+        *,
+        group_id: int,
+        biz_date: date,
+        content_texts: list[str],
+    ) -> None:
+        if not content_texts:
+            return
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(ReviewCandidate).where(
+                    ReviewCandidate.group_id == group_id,
+                    ReviewCandidate.biz_date == biz_date,
+                    ReviewCandidate.content_text.in_(content_texts),
+                )
+            )
+            for row in rows:
+                row.used_in_next_day_task = True
+            await session.commit()
+
+    async def evaluate_review_candidates_for_day(
+        self,
+        *,
+        user_id: int,
+        group_id: int,
+        biz_date: date,
+    ) -> list[dict[str, Any]]:
+        async with self._session_factory() as session:
+            candidates = await session.scalars(
+                select(ReviewCandidate)
+                .where(
+                    ReviewCandidate.user_id == user_id,
+                    ReviewCandidate.group_id == group_id,
+                    ReviewCandidate.biz_date == biz_date,
+                    ReviewCandidate.selected_for_next_day.is_(True),
+                )
+                .order_by(desc(ReviewCandidate.priority_score), ReviewCandidate.id.asc())
+            )
+            start, end = self._local_day_bounds(biz_date)
+            texts = await session.scalars(
+                select(MessageEvent.message_text)
+                .where(
+                    MessageEvent.user_id == user_id,
+                    MessageEvent.group_id == group_id,
+                    MessageEvent.created_at >= start,
+                    MessageEvent.created_at < end,
+                )
+            )
+            task_texts = await session.scalars(
+                select(TaskSubmission.submission_text)
+                .join(DailyTask, DailyTask.id == TaskSubmission.task_id)
+                .join(DailyLesson, DailyLesson.id == DailyTask.lesson_id)
+                .where(
+                    TaskSubmission.user_id == user_id,
+                    DailyLesson.group_id == group_id,
+                    DailyLesson.biz_date == biz_date,
+                )
+            )
+            corpus = "\n".join(list(texts) + list(task_texts)).lower()
+            results: list[dict[str, Any]] = []
+            for candidate in candidates:
+                tokens = {
+                    part.strip().lower()
+                    for part in [candidate.content_text, candidate.correct_text]
+                    if part and part.strip()
+                }
+                matched = any(token.lower() in corpus for token in tokens)
+                candidate.recalled_successfully = matched
+                results.append(
+                    {
+                        "content_text": candidate.content_text,
+                        "correct_text": candidate.correct_text,
+                        "priority_score": candidate.priority_score,
+                        "recalled_successfully": matched,
+                    }
+                )
+            await session.commit()
+            return results
+
+    async def get_daily_learning_snapshot(
+        self,
+        *,
+        user_id: int,
+        group_id: int,
+        biz_date: date,
+    ) -> DailyLearningSnapshot | None:
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(DailyLearningSnapshot).where(
+                    DailyLearningSnapshot.user_id == user_id,
+                    DailyLearningSnapshot.group_id == group_id,
+                    DailyLearningSnapshot.biz_date == biz_date,
+                )
+            )
+
+    async def upsert_daily_learning_snapshot(
+        self,
+        *,
+        biz_date: date,
+        user_id: int,
+        group_id: int,
+        lesson_id: int | None,
+        summary_json: dict[str, Any],
+        mastery_level: str,
+        mastery_reason: str,
+        model_summary: str,
+        activity_score: int,
+        evidence_score: int,
+    ) -> DailyLearningSnapshot:
+        async with self._session_factory() as session:
+            snapshot = await session.scalar(
+                select(DailyLearningSnapshot).where(
+                    DailyLearningSnapshot.biz_date == biz_date,
+                    DailyLearningSnapshot.user_id == user_id,
+                    DailyLearningSnapshot.group_id == group_id,
+                )
+            )
+            if snapshot is None:
+                snapshot = DailyLearningSnapshot(
+                    biz_date=biz_date,
+                    user_id=user_id,
+                    group_id=group_id,
+                )
+                session.add(snapshot)
+            snapshot.lesson_id = lesson_id
+            snapshot.summary_json = summary_json
+            snapshot.mastery_level = mastery_level
+            snapshot.mastery_reason = mastery_reason
+            snapshot.model_summary = model_summary
+            snapshot.activity_score = activity_score
+            snapshot.evidence_score = evidence_score
+            snapshot.generated_at = datetime.now(UTC)
+            await session.commit()
+            await session.refresh(snapshot)
+            return snapshot
+
+    async def get_daily_card_snapshot(
+        self,
+        *,
+        biz_date: date,
+        group_id: int,
+        card_type: str,
+        user_id: int | None = None,
+    ) -> DailyCardSnapshot | None:
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(DailyCardSnapshot).where(
+                    DailyCardSnapshot.biz_date == biz_date,
+                    DailyCardSnapshot.group_id == group_id,
+                    DailyCardSnapshot.card_type == card_type,
+                    DailyCardSnapshot.user_id == user_id,
+                )
+            )
+
+    async def upsert_daily_card_snapshot(
+        self,
+        *,
+        biz_date: date,
+        group_id: int,
+        card_type: str,
+        plain_text: str,
+        card_document_json: dict[str, Any],
+        user_id: int | None = None,
+        image_paths_json: list[str] | None = None,
+    ) -> DailyCardSnapshot:
+        async with self._session_factory() as session:
+            snapshot = await session.scalar(
+                select(DailyCardSnapshot).where(
+                    DailyCardSnapshot.biz_date == biz_date,
+                    DailyCardSnapshot.group_id == group_id,
+                    DailyCardSnapshot.card_type == card_type,
+                    DailyCardSnapshot.user_id == user_id,
+                )
+            )
+            if snapshot is None:
+                snapshot = DailyCardSnapshot(
+                    biz_date=biz_date,
+                    group_id=group_id,
+                    card_type=card_type,
+                    user_id=user_id,
+                )
+                session.add(snapshot)
+            snapshot.plain_text = plain_text
+            snapshot.card_document_json = card_document_json
+            snapshot.image_paths_json = image_paths_json or []
+            snapshot.created_at = datetime.now(UTC)
+            await session.commit()
+            await session.refresh(snapshot)
+            return snapshot
+
+    async def update_daily_card_snapshot_images(
+        self,
+        *,
+        snapshot_id: int,
+        image_paths_json: list[str],
+    ) -> None:
+        async with self._session_factory() as session:
+            snapshot = await session.get(DailyCardSnapshot, snapshot_id)
+            if snapshot is None:
+                return
+            snapshot.image_paths_json = image_paths_json
+            await session.commit()
+
+    async def create_message_delivery_log(
+        self,
+        *,
+        group_id: int,
+        job_name: str,
+        delivery_mode: str,
+        success: bool,
+        user_id: int | None = None,
+        card_snapshot_id: int | None = None,
+        provider_response: str = "",
+    ) -> MessageDeliveryLog:
+        async with self._session_factory() as session:
+            log = MessageDeliveryLog(
+                group_id=group_id,
+                user_id=user_id,
+                job_name=job_name,
+                card_snapshot_id=card_snapshot_id,
+                delivery_mode=delivery_mode,
+                success=success,
+                provider_response=provider_response,
+            )
+            session.add(log)
+            await session.commit()
+            await session.refresh(log)
+            return log
 
     async def submit_task(
         self,
@@ -784,6 +1328,303 @@ class LearningRepository:
                 "points_earned": int(total_points or 0),
                 "current_streak": int(streak.current_days if streak else 0),
                 "level": level_row.current_level if level_row else "beginner",
+            }
+
+    async def get_daily_error_digest(
+        self,
+        *,
+        user_id: int,
+        group_id: int,
+        target_date: date,
+        word_limit: int = 5,
+        grammar_limit: int = 5,
+    ) -> dict[str, Any]:
+        async with self._session_factory() as session:
+            start, end = self._local_day_bounds(target_date)
+
+            word_total = await session.scalar(
+                select(func.count())
+                .select_from(ErrorOccurrence)
+                .where(
+                    ErrorOccurrence.user_id == user_id,
+                    ErrorOccurrence.group_id == group_id,
+                    ErrorOccurrence.error_category == "word",
+                    ErrorOccurrence.created_at >= start,
+                    ErrorOccurrence.created_at < end,
+                )
+            )
+            grammar_total = await session.scalar(
+                select(func.count())
+                .select_from(ErrorOccurrence)
+                .where(
+                    ErrorOccurrence.user_id == user_id,
+                    ErrorOccurrence.group_id == group_id,
+                    ErrorOccurrence.error_category == "grammar",
+                    ErrorOccurrence.created_at >= start,
+                    ErrorOccurrence.created_at < end,
+                )
+            )
+
+            async def _load_items(category: str, limit: int) -> list[dict[str, Any]]:
+                rows = await session.execute(
+                    select(
+                        ErrorOccurrence.error_type,
+                        ErrorOccurrence.source_fragment,
+                        ErrorOccurrence.correct_fragment,
+                        ErrorOccurrence.explanation,
+                        func.count().label("frequency"),
+                        func.max(ErrorOccurrence.created_at).label("latest_at"),
+                    )
+                    .where(
+                        ErrorOccurrence.user_id == user_id,
+                        ErrorOccurrence.group_id == group_id,
+                        ErrorOccurrence.error_category == category,
+                        ErrorOccurrence.created_at >= start,
+                        ErrorOccurrence.created_at < end,
+                    )
+                    .group_by(
+                        ErrorOccurrence.error_type,
+                        ErrorOccurrence.source_fragment,
+                        ErrorOccurrence.correct_fragment,
+                        ErrorOccurrence.explanation,
+                    )
+                    .order_by(desc("frequency"), desc("latest_at"))
+                    .limit(limit)
+                )
+                return [
+                    {
+                        "error_type": row[0],
+                        "source_fragment": row[1],
+                        "correct_fragment": row[2],
+                        "explanation": row[3],
+                        "frequency": int(row[4] or 0),
+                    }
+                    for row in rows.all()
+                ]
+
+            return {
+                "word_total": int(word_total or 0),
+                "grammar_total": int(grammar_total or 0),
+                "word_items": await _load_items("word", word_limit),
+                "grammar_items": await _load_items("grammar", grammar_limit),
+            }
+
+    async def get_daily_conversation_evidence_stats(
+        self,
+        *,
+        user_id: int,
+        group_id: int,
+        target_date: date,
+    ) -> dict[str, Any]:
+        async with self._session_factory() as session:
+            total_messages = await session.scalar(
+                select(func.count())
+                .select_from(MessageEvent)
+                .where(
+                    MessageEvent.user_id == user_id,
+                    MessageEvent.group_id == group_id,
+                    MessageEvent.biz_date_local == target_date,
+                )
+            )
+            rows = await session.execute(
+                select(
+                    ConversationEvidence.evidence_type,
+                    func.count().label("evidence_count"),
+                    func.sum(ConversationEvidence.evidence_score).label("score_sum"),
+                )
+                .where(
+                    ConversationEvidence.user_id == user_id,
+                    ConversationEvidence.group_id == group_id,
+                    ConversationEvidence.biz_date == target_date,
+                )
+                .group_by(ConversationEvidence.evidence_type)
+            )
+            counts: dict[str, dict[str, int]] = {}
+            for evidence_type, evidence_count, score_sum in rows.all():
+                counts[str(evidence_type)] = {
+                    "count": int(evidence_count or 0),
+                    "score": int(score_sum or 0),
+                }
+
+            evidence_examples = await session.scalars(
+                select(ConversationEvidence.payload_json)
+                .where(
+                    ConversationEvidence.user_id == user_id,
+                    ConversationEvidence.group_id == group_id,
+                    ConversationEvidence.biz_date == target_date,
+                    ConversationEvidence.evidence_type.in_(["target_hit", "english_attempt", "question_asked"]),
+                )
+                .order_by(desc(ConversationEvidence.evidence_score), ConversationEvidence.id.asc())
+                .limit(6)
+            )
+            examples: list[str] = []
+            for payload in evidence_examples:
+                if not isinstance(payload, dict):
+                    continue
+                token = (payload.get("token") or payload.get("text") or "").strip()
+                if token and token not in examples:
+                    examples.append(token)
+
+            return {
+                "total_messages": int(total_messages or 0),
+                "english_attempt_count": counts.get("english_attempt", {}).get("count", 0),
+                "target_hit_count": counts.get("target_hit", {}).get("count", 0),
+                "question_asked_count": counts.get("question_asked", {}).get("count", 0),
+                "chat_noise_count": counts.get("chat_noise", {}).get("count", 0),
+                "evidence_score": sum(item["score"] for item in counts.values()),
+                "examples": examples[:3],
+            }
+
+    async def get_daily_progress_stats(
+        self,
+        *,
+        user_id: int,
+        group_id: int,
+        target_date: date,
+    ) -> dict[str, Any]:
+        async with self._session_factory() as session:
+            start, end = self._local_day_bounds(target_date)
+
+            translation_count = await session.scalar(
+                select(func.count())
+                .select_from(InteractionResult)
+                .join(MessageEvent, MessageEvent.id == InteractionResult.event_id)
+                .where(
+                    MessageEvent.user_id == user_id,
+                    MessageEvent.group_id == group_id,
+                    InteractionResult.action_type == "chinese_translation",
+                    InteractionResult.created_at >= start,
+                    InteractionResult.created_at < end,
+                )
+            )
+            correction_count = await session.scalar(
+                select(func.count())
+                .select_from(InteractionResult)
+                .join(MessageEvent, MessageEvent.id == InteractionResult.event_id)
+                .where(
+                    MessageEvent.user_id == user_id,
+                    MessageEvent.group_id == group_id,
+                    InteractionResult.action_type == "english_correction",
+                    InteractionResult.created_at >= start,
+                    InteractionResult.created_at < end,
+                )
+            )
+            word_error_count = await session.scalar(
+                select(func.count())
+                .select_from(ErrorOccurrence)
+                .where(
+                    ErrorOccurrence.user_id == user_id,
+                    ErrorOccurrence.group_id == group_id,
+                    ErrorOccurrence.error_category == "word",
+                    ErrorOccurrence.created_at >= start,
+                    ErrorOccurrence.created_at < end,
+                )
+            )
+            grammar_error_count = await session.scalar(
+                select(func.count())
+                .select_from(ErrorOccurrence)
+                .where(
+                    ErrorOccurrence.user_id == user_id,
+                    ErrorOccurrence.group_id == group_id,
+                    ErrorOccurrence.error_category == "grammar",
+                    ErrorOccurrence.created_at >= start,
+                    ErrorOccurrence.created_at < end,
+                )
+            )
+            task_completion_count = await session.scalar(
+                select(func.count())
+                .select_from(TaskSubmission)
+                .join(DailyTask, DailyTask.id == TaskSubmission.task_id)
+                .join(DailyLesson, DailyLesson.id == DailyTask.lesson_id)
+                .where(
+                    TaskSubmission.user_id == user_id,
+                    DailyLesson.group_id == group_id,
+                    TaskSubmission.submitted_at >= start,
+                    TaskSubmission.submitted_at < end,
+                )
+            )
+            review_session_count = await session.scalar(
+                select(func.count())
+                .select_from(PointsLedger)
+                .where(
+                    PointsLedger.user_id == user_id,
+                    PointsLedger.reason == "review_session",
+                    PointsLedger.created_at >= start,
+                    PointsLedger.created_at < end,
+                )
+            )
+            points_earned = await session.scalar(
+                select(func.sum(PointsLedger.points))
+                .where(
+                    PointsLedger.user_id == user_id,
+                    PointsLedger.created_at >= start,
+                    PointsLedger.created_at < end,
+                )
+            )
+            today_task_total = await session.scalar(
+                select(func.count())
+                .select_from(DailyTask)
+                .join(DailyLesson, DailyLesson.id == DailyTask.lesson_id)
+                .where(
+                    DailyLesson.group_id == group_id,
+                    DailyLesson.biz_date == target_date,
+                )
+            )
+            today_task_completed = await session.scalar(
+                select(func.count())
+                .select_from(TaskSubmission)
+                .join(DailyTask, DailyTask.id == TaskSubmission.task_id)
+                .join(DailyLesson, DailyLesson.id == DailyTask.lesson_id)
+                .where(
+                    TaskSubmission.user_id == user_id,
+                    DailyLesson.group_id == group_id,
+                    DailyLesson.biz_date == target_date,
+                )
+            )
+            quiz_activity_count = await session.scalar(
+                select(func.count())
+                .select_from(QuizSession)
+                .where(
+                    QuizSession.user_id == user_id,
+                    QuizSession.group_id == group_id,
+                    QuizSession.updated_at >= start,
+                    QuizSession.updated_at < end,
+                )
+            )
+            level_row = await session.scalar(
+                select(UserLevel).where(
+                    UserLevel.user_id == user_id,
+                    UserLevel.group_id == group_id,
+                )
+            )
+            streak = await session.scalar(select(Streak).where(Streak.user_id == user_id))
+            activity_count = sum(
+                int(value or 0)
+                for value in [
+                    translation_count,
+                    correction_count,
+                    word_error_count,
+                    grammar_error_count,
+                    task_completion_count,
+                    review_session_count,
+                    quiz_activity_count,
+                ]
+            )
+
+            return {
+                "translation_count": int(translation_count or 0),
+                "correction_count": int(correction_count or 0),
+                "word_error_count": int(word_error_count or 0),
+                "grammar_error_count": int(grammar_error_count or 0),
+                "task_completion_count": int(task_completion_count or 0),
+                "today_task_total": int(today_task_total or 0),
+                "today_task_completed": int(today_task_completed or 0),
+                "review_session_count": int(review_session_count or 0),
+                "quiz_activity_count": int(quiz_activity_count or 0),
+                "points_earned": int(points_earned or 0),
+                "current_streak": int(streak.current_days if streak else 0),
+                "level": level_row.current_level if level_row else "beginner",
+                "has_activity": activity_count > 0,
             }
 
     async def list_top_error_fragments(self, *, user_id: int, group_id: int, limit: int = 5) -> list[ErrorPoint]:

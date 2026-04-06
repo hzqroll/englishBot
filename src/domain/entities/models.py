@@ -48,6 +48,22 @@ class ReviewItemEntity:
 
 
 @dataclass(slots=True)
+class ReviewCandidateEntity:
+    id: int
+    biz_date: date
+    user_id: int
+    group_id: int
+    source_type: str
+    source_ref_id: str | None
+    content_text: str
+    correct_text: str
+    priority_score: int
+    selected_for_next_day: bool
+    used_in_next_day_task: bool
+    recalled_successfully: bool | None
+
+
+@dataclass(slots=True)
 class DailyTaskEntity:
     id: int
     lesson_id: int
@@ -75,4 +91,3 @@ class WeeklyReportEntity:
     summary_text: str
     report_json: dict
     created_at: date
-

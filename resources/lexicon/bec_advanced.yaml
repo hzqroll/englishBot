@@ -1,0 +1,199 @@
+- entry_key: reschedule_the_meeting
+  entry_type: chunk
+  text: reschedule the meeting
+  phonetic: /ˌriːˈskedʒuːl ðə ˈmiːtɪŋ/
+  meaning_zh: 重新安排会议时间
+  usage_scene: 会议改期、时间协调
+  example: Could we reschedule the meeting for tomorrow morning?
+  difficulty: unified
+  tags: [meeting, schedule, office]
+
+- entry_key: due_to_a_conflict
+  entry_type: chunk
+  text: due to a conflict
+  phonetic: /djuː tuː ə ˈkɒnflɪkt/
+  meaning_zh: 由于时间冲突
+  usage_scene: 解释不能参加会议或需要改时间
+  example: I need to move the call due to a conflict.
+  difficulty: unified
+  tags: [meeting, schedule, office]
+
+- entry_key: would_it_be_possible_to
+  entry_type: chunk
+  text: would it be possible to
+  phonetic: /wʊd ɪt biː ˈpɒsəbəl tuː/
+  meaning_zh: 是否可以……
+  usage_scene: 礼貌提出请求
+  example: Would it be possible to push the meeting back by an hour?
+  difficulty: unified
+  tags: [meeting, polite_request, office]
+
+- entry_key: works_better_for_me
+  entry_type: chunk
+  text: works better for me
+  phonetic: /wɜːrks ˈbetər fɔːr miː/
+  meaning_zh: 对我来说更合适
+  usage_scene: 表达时间偏好
+  example: Thursday afternoon works better for me.
+  difficulty: unified
+  tags: [meeting, schedule, office]
+
+- entry_key: keep_you_updated
+  entry_type: chunk
+  text: keep you updated
+  phonetic: /kiːp juː ʌpˈdeɪtɪd/
+  meaning_zh: 随时同步进展
+  usage_scene: 跟进反馈、后续通知
+  example: I'll keep you updated if anything changes.
+  difficulty: unified
+  tags: [meeting, follow_up, office]
+
+- entry_key: deadline
+  entry_type: word
+  text: deadline
+  phonetic: /ˈdedlaɪn/
+  meaning_zh: 截止日期
+  usage_scene: 项目管理、任务交付
+  example: We need to finish the draft before the deadline.
+  difficulty: unified
+  tags: [meeting, schedule, office]
+
+- entry_key: availability
+  entry_type: word
+  text: availability
+  phonetic: /əˌveɪləˈbɪləti/
+  meaning_zh: 可用时间；空档
+  usage_scene: 约时间、排期
+  example: Please share your availability for tomorrow afternoon.
+  difficulty: unified
+  tags: [meeting, schedule, office]
+
+- entry_key: calendar
+  entry_type: word
+  text: calendar
+  phonetic: /ˈkælɪndər/
+  meaning_zh: 日程表
+  usage_scene: 查看会议安排
+  example: I just checked my calendar and saw a conflict.
+  difficulty: unified
+  tags: [meeting, schedule, office]
+
+- entry_key: confirm
+  entry_type: word
+  text: confirm
+  phonetic: /kənˈfɜːrm/
+  meaning_zh: 确认
+  usage_scene: 确认时间、安排、计划
+  example: Let's confirm the meeting for 10 a.m.
+  difficulty: unified
+  tags: [meeting, schedule, office]
+
+- entry_key: postpone
+  entry_type: word
+  text: postpone
+  phonetic: /poʊsˈpoʊn/
+  meaning_zh: 延期
+  usage_scene: 延后会议或任务
+  example: We may need to postpone the workshop until next week.
+  difficulty: unified
+  tags: [meeting, schedule, office]
+
+- entry_key: project_update
+  entry_type: chunk
+  text: provide a quick update
+  phonetic: /prəˈvaɪd ə kwɪk ʌpˈdeɪt/
+  meaning_zh: 快速同步一下进展
+  usage_scene: 汇报项目状态
+  example: Let me provide a quick update on the client request.
+  difficulty: unified
+  tags: [project_update, office]
+
+- entry_key: on_track
+  entry_type: chunk
+  text: on track
+  phonetic: /ɒn træk/
+  meaning_zh: 进展顺利，按计划进行
+  usage_scene: 汇报进度
+  example: The design work is on track for Friday.
+  difficulty: unified
+  tags: [project_update, office]
+
+- entry_key: run_into_an_issue
+  entry_type: chunk
+  text: run into an issue
+  phonetic: /rʌn ˈɪntuː ən ˈɪʃuː/
+  meaning_zh: 遇到一个问题
+  usage_scene: 汇报风险和阻碍
+  example: We ran into an issue with the API integration.
+  difficulty: unified
+  tags: [project_update, office]
+
+- entry_key: next_step
+  entry_type: chunk
+  text: the next step is to
+  phonetic: /ðə nekst step ɪz tuː/
+  meaning_zh: 下一步是……
+  usage_scene: 规划后续动作
+  example: The next step is to review the proposal with finance.
+  difficulty: unified
+  tags: [project_update, office]
+
+- entry_key: follow_up
+  entry_type: chunk
+  text: follow up with
+  phonetic: /ˈfɑːloʊ ʌp wɪð/
+  meaning_zh: 跟进某人/某事
+  usage_scene: 追踪任务
+  example: I'll follow up with the vendor this afternoon.
+  difficulty: unified
+  tags: [project_update, office]
+
+- entry_key: progress
+  entry_type: word
+  text: progress
+  phonetic: /ˈprɑːɡres/
+  meaning_zh: 进度
+  usage_scene: 汇报项目推进情况
+  example: We've made good progress on the draft.
+  difficulty: unified
+  tags: [project_update, office]
+
+- entry_key: blocker
+  entry_type: word
+  text: blocker
+  phonetic: /ˈblɑːkər/
+  meaning_zh: 阻塞项
+  usage_scene: 项目风险沟通
+  example: Our main blocker is waiting for legal approval.
+  difficulty: unified
+  tags: [project_update, office]
+
+- entry_key: milestone
+  entry_type: word
+  text: milestone
+  phonetic: /ˈmaɪlstoʊn/
+  meaning_zh: 里程碑
+  usage_scene: 项目计划和汇报
+  example: We reached the first milestone ahead of schedule.
+  difficulty: unified
+  tags: [project_update, office]
+
+- entry_key: align
+  entry_type: word
+  text: align
+  phonetic: /əˈlaɪn/
+  meaning_zh: 对齐；达成一致
+  usage_scene: 团队协作
+  example: Let's align on the scope before the next meeting.
+  difficulty: unified
+  tags: [project_update, office]
+
+- entry_key: priority
+  entry_type: word
+  text: priority
+  phonetic: /praɪˈɔːrəti/
+  meaning_zh: 优先级
+  usage_scene: 排任务、定主次
+  example: Client feedback is our top priority this week.
+  difficulty: unified
+  tags: [project_update, office]

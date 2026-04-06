@@ -48,6 +48,18 @@ class LessonTask:
 
 
 @dataclass(slots=True)
+class LessonTargetItem:
+    entry_key: str
+    entry_type: str
+    text: str
+    phonetic: str
+    meaning_zh: str
+    usage_scene: str
+    example: str
+    target_role: str
+
+
+@dataclass(slots=True)
 class LessonBundle:
     source_name: str
     external_id: str
@@ -57,6 +69,9 @@ class LessonBundle:
     difficulty: str
     biz_date: date
     tasks: list[LessonTask]
+    theme_key: str = ""
+    package_snapshot: dict = field(default_factory=dict)
+    target_items: list[LessonTargetItem] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -80,4 +95,3 @@ class RuntimeSetting:
     key: str
     value: str
     updated_at: datetime
-

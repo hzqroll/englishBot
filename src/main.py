@@ -45,6 +45,7 @@ app.mount("/admin/static", StaticFiles(directory=str(settings.static_dir)), name
 
 load_plugin("src.plugins.at_message")
 load_plugin("src.plugins.commands")
+load_plugin("src.plugins.passive_group_observer")
 
 
 @app.on_event("startup")

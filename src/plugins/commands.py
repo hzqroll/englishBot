@@ -4,6 +4,7 @@ from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent
 from nonebot.rule import Rule
 
+from src.application.conversation_usecases import ConversationContext
 from src.application.learning_usecases import EnrollmentContext
 from src.domain.value_objects.messaging import MessageEnvelope
 from src.infrastructure.settings.container import get_or_init_container
@@ -150,6 +151,17 @@ async def handle_group_command(bot: Bot, event: GroupMessageEvent) -> None:
         await group_command.finish("当前群未启用学习功能。")
 
     text = _command_text(event)
+    qq_user_id, nickname = _get_identity(event)
+    await container.conversation_usecase.record_command_message(
+        ConversationContext(
+            raw_event_id=str(event.message_id),
+            group_id=str(event.group_id),
+            group_name="",
+            user_id=qq_user_id,
+            nickname=nickname,
+            message_text=text,
+        )
+    )
     command_name = match_fixed_command(text)
     if command_name == "报名学习":
         message = await _handle_enroll(event)

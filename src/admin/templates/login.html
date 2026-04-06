@@ -7,17 +7,32 @@
     <link rel="stylesheet" href="/admin/static/admin.css" />
   </head>
   <body class="login-body">
-    <form class="login-card" method="post" action="/admin/login">
-      <h1>管理员登录</h1>
-      {% if error %}
-      <p class="error">{{ error }}</p>
-      {% endif %}
-      <label>用户名</label>
-      <input type="text" name="username" required />
-      <label>密码</label>
-      <input type="password" name="password" required />
-      <button type="submit">登录</button>
-    </form>
+    <div class="login-shell">
+      <section class="login-aside">
+        <p class="eyebrow">English Learning Console</p>
+        <h1>让后台看起来像一套真正的学习运营系统。</h1>
+        <p>
+          这里统一查看群学习活跃度、补发学习包、审查纠错沉淀，并确认每晚的学习卡是否按节奏发出。
+        </p>
+        <div class="login-meta">
+          <span>群学习</span>
+          <span>卡片运营</span>
+          <span>纠错复盘</span>
+        </div>
+      </section>
+      <form class="login-card" method="post" action="/admin/login">
+        <p class="eyebrow">Admin Access</p>
+        <h2>管理员登录</h2>
+        <p class="muted">使用后台账号进入学习运营台。</p>
+        {% if error %}
+        <p class="error">{{ error }}</p>
+        {% endif %}
+        <label class="field-label">用户名</label>
+        <input type="text" name="username" required />
+        <label class="field-label">密码</label>
+        <input type="password" name="password" required />
+        <button type="submit">进入后台</button>
+      </form>
+    </div>
   </body>
-  </html>
-
+</html>

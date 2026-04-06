@@ -1,44 +1,73 @@
 {% extends "base.html" %}
 
 {% block content %}
-<header class="header">
-  <h2>动态配置</h2>
+<header class="page-hero">
+  <div>
+    <p class="eyebrow">Runtime Config</p>
+    <h2>动态配置</h2>
+    <p class="hero-copy">在不重启服务的前提下覆盖学习节奏、模板参数和运行时行为，适合调试群运营节奏。</p>
+  </div>
 </header>
 
-<section class="panel">
-  <form method="post" action="/admin/settings" class="setting-form">
-    <label>配置键</label>
-    <input type="text" name="key" required />
-    <label>配置值</label>
-    <textarea name="value" rows="4" required></textarea>
-    <button type="submit">保存</button>
-  </form>
+<section class="split-layout">
+  <section class="panel stack-lg">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Edit Runtime Value</p>
+        <h3>写入配置</h3>
+      </div>
+      <p class="muted">适合覆盖 cron、任务数量、提示词版本等运行时项。</p>
+    </div>
+    <form method="post" action="/admin/settings" class="form-stack">
+      <label class="field-label">配置键</label>
+      <input type="text" name="key" placeholder="例如 scheduler.daily_progress_cron" required />
+      <label class="field-label">配置值</label>
+      <textarea name="value" rows="6" placeholder="填写新的配置值" required></textarea>
+      <button type="submit">保存并生效</button>
+    </form>
+  </section>
+
+  <section class="panel stack-lg">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Current Overrides</p>
+        <h3>已写入配置</h3>
+      </div>
+      <p class="muted">这里展示数据库中真正覆盖了静态配置的项目。</p>
+    </div>
+    <div class="table-shell">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>键</th>
+            <th>值</th>
+            <th>更新时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in settings %}
+          <tr>
+            <td><strong>{{ item.key }}</strong></td>
+            <td><pre class="code-block">{{ item.value }}</pre></td>
+            <td>{{ item.updated_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </section>
 
-<section class="panel">
-  <table>
-    <thead>
-      <tr>
-        <th>键</th>
-        <th>值</th>
-        <th>更新时间</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in settings %}
-      <tr>
-        <td>{{ item.key }}</td>
-        <td><pre>{{ item.value }}</pre></td>
-        <td>{{ item.updated_at }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section class="panel">
-  <h3>当前生效配置</h3>
-  <table>
+<section class="panel stack-lg">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Effective Settings</p>
+      <h3>当前生效配置</h3>
+    </div>
+    <p class="muted">这是运行时真正被后台读取的值，用于核对数据库覆盖是否成功。</p>
+  </div>
+  <div class="table-shell">
+    <table class="data-table">
     <thead>
       <tr>
         <th>键</th>
@@ -48,11 +77,12 @@
     <tbody>
       {% for key, value in effective_settings.items() %}
       <tr>
-        <td>{{ key }}</td>
-        <td><pre>{{ value }}</pre></td>
+        <td><strong>{{ key }}</strong></td>
+        <td><pre class="code-block">{{ value }}</pre></td>
       </tr>
       {% endfor %}
     </tbody>
-  </table>
+    </table>
+  </div>
 </section>
 {% endblock %}

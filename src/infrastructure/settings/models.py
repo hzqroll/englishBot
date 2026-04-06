@@ -39,12 +39,12 @@ class BotSettings(BaseModel):
     enabled_group_ids: list[str] = Field(default_factory=list)
     admin_group_ids: list[str] = Field(default_factory=list)
     context_ttl_minutes: int = 15
-    daily_reminder_enabled: bool = True
 
 
 class SchedulerSettings(BaseModel):
     daily_push_cron: str = "0 8 * * *"
-    daily_reminder_cron: str = "0 20 * * *"
+    daily_error_digest_cron: str = "0 18 * * *"
+    daily_progress_cron: str = "0 20 * * *"
     weekly_report_cron: str = "0 9 * * 1"
     weekly_quiz_cron: str = "0 19 * * 0"
     nightly_backup_cron: str = "0 2 * * *"
@@ -78,10 +78,8 @@ class AdminUiSettings(BaseModel):
 
 
 class MessageSettings(BaseModel):
-    render_mode: str = "hybrid"
+    render_mode: str = "image_card"
     enable_task_cards: bool = True
-    public_base_url: str = ""
-    link_expire_minutes: int = 60
     card_fallback_to_text: bool = True
 
 

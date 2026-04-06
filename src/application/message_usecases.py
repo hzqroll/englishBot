@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 from src.domain.services.error_points import ErrorAggregator
+from src.domain.services.error_taxonomy import categorize_error_type, label_error_type
 from src.domain.services.review import ReviewScheduler
 from src.domain.value_objects.learning import CorrectionResult, ErrorPointPayload, LanguageType
 from src.infrastructure.cache.context_store import ContextStore
@@ -45,20 +47,25 @@ class MessageUseCase:
     async def handle_at_message(self, ctx: MessageCommandContext) -> str:
         group = await self._identity_repo.ensure_group(ctx.group_id, ctx.group_name)
         user = await self._identity_repo.ensure_user(ctx.user_id, ctx.nickname)
+        detected = await self._translate_provider.detect_language(ctx.message_text)
         event = await self._learning_repo.create_message_event(
             raw_event_id=ctx.raw_event_id,
             group_id=group.id,
             user_id=user.id,
             message_text=ctx.message_text,
             event_type="at_message",
+            source_type="at_message",
+            is_to_bot=True,
+            is_command=False,
+            language_guess=detected.value,
+            analysis_status="summarized",
+            biz_date_local=date.today(),
         )
-
-        detected = await self._translate_provider.detect_language(ctx.message_text)
         context = self._context_store.get(ctx.group_id, ctx.user_id)
 
         if detected == LanguageType.ENGLISH:
             correction = await self._correction_provider.correct_english(ctx.message_text, context=context)
-            await self._persist_error_points(user.id, group.id, correction.error_points)
+            await self._persist_error_points(event.id, user.id, group.id, correction.error_points)
             reply = self._render_english_reply(correction)
             action_type = "english_correction"
         else:
@@ -97,6 +104,7 @@ class MessageUseCase:
 
     async def _persist_error_points(
         self,
+        event_id: int,
         user_id: int,
         group_id: int,
         payloads: list[ErrorPointPayload],
@@ -108,6 +116,13 @@ class MessageUseCase:
             user_id=user_id,
             group_id=group_id,
             payloads=merged,
+        )
+        await self._learning_repo.create_error_occurrences(
+            event_id=event_id,
+            user_id=user_id,
+            group_id=group_id,
+            payloads=merged,
+            error_point_ids=[item.id for item in stored],
         )
         progress = self._review_scheduler.schedule_new()
         await self._learning_repo.ensure_review_items(
@@ -121,19 +136,29 @@ class MessageUseCase:
         )
 
     def _render_english_reply(self, result: CorrectionResult) -> str:
-        details = "\n".join(
-            f"- {item.error_type}: `{item.source_fragment}` -> `{item.correct_fragment}`"
-            for item in result.error_points[:5]
-        )
-        return (
-            f"纠错后：\n{result.corrected_text}\n\n"
-            f"中文翻译：\n{result.zh_translation}\n\n"
-            f"说明：{result.explanation or '表达已经比较自然。'}\n"
-            f"错误点：\n{details or '- 本次未识别到明显错误。'}"
-        )
+        parts = [f"✏️ {result.corrected_text}"]
+        if result.zh_translation:
+            parts.append(f"\n📖 {result.zh_translation}")
+        if result.explanation:
+            parts.append(f"\n💡 {result.explanation}")
+        if result.error_points:
+            word_lines: list[str] = []
+            grammar_lines: list[str] = []
+            for item in result.error_points[:6]:
+                label = label_error_type(item.error_type)
+                line = f"  {label}：{item.source_fragment} → {item.correct_fragment}"
+                if categorize_error_type(item.error_type) == "word":
+                    word_lines.append(line)
+                else:
+                    grammar_lines.append(line)
+            if word_lines:
+                parts.append("\n📝 单词/表达纠错\n" + "\n".join(word_lines))
+            if grammar_lines:
+                parts.append("\n📚 语法纠错\n" + "\n".join(grammar_lines))
+        return "\n".join(parts)
 
     def _render_chinese_reply(self, *, translated_text: str, natural_text: str) -> str:
-        return (
-            f"英文翻译：\n{translated_text}\n\n"
-            f"更自然表达：\n{natural_text}"
-        )
+        parts = [f"🌐 {translated_text}"]
+        if natural_text:
+            parts.append(f"\n✨ {natural_text}")
+        return "\n".join(parts)

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="page-hero">
+  <div>
+    <p class="eyebrow">Learning Groups</p>
+    <h2>学习群管理</h2>
+    <p class="hero-copy">在这里维护启用群、管理员群与群显示名称。保存后会立即刷新运行时启用列表，不需要手改配置文件。</p>
+  </div>
+  <div class="hero-chip">
+    <span class="hero-chip-label">当前登记群数</span>
+    <strong>{{ groups | length }}</strong>
+  </div>
+</header>
+
+{% if error %}
+<p class="error">{{ error }}</p>
+{% endif %}
+
+<section class="split-layout">
+  <section class="panel stack-lg">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Create Group</p>
+        <h3>新增学习群</h3>
+      </div>
+      <p class="muted">新增后可立即参与消息接入和定时推送调度。</p>
+    </div>
+    <form method="post" action="/admin/groups" class="form-stack">
+      <label class="field-label">群号</label>
+      <input type="text" name="qq_group_id" placeholder="例如 204257012" required />
+      <label class="field-label">群显示名称</label>
+      <input type="text" name="name" placeholder="例如 No Rain No Rainbow" />
+      <label class="checkbox-line">
+        <input type="checkbox" name="enabled" checked />
+        启用该群的学习能力
+      </label>
+      <label class="checkbox-line">
+        <input type="checkbox" name="is_admin" />
+        同时设为管理员群
+      </label>
+      <button type="submit">保存学习群</button>
+    </form>
+  </section>
+
+  <section class="panel stack-lg">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Runtime Registry</p>
+        <h3>已登记学习群</h3>
+      </div>
+      <p class="muted">可以直接修改群号、名称和运行状态。管理员群用于后台权限和运营用途。</p>
+    </div>
+    <div class="group-list">
+      {% for group in groups %}
+      <form method="post" action="/admin/groups" class="group-card">
+        <input type="hidden" name="group_id" value="{{ group.id }}" />
+        <div class="group-card-head">
+          <div>
+            <p class="group-card-kicker">QQ群</p>
+            <h4>{{ group.qq_group_id }}</h4>
+          </div>
+          <div class="group-badges">
+            <span class="status-pill {% if group.enabled %}status-success{% endif %}">{{ "已启用" if group.enabled else "未启用" }}</span>
+            {% if group.is_admin %}
+            <span class="status-pill status-admin">管理员群</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div>
+            <label class="field-label">群号</label>
+            <input type="text" name="qq_group_id" value="{{ group.qq_group_id }}" required />
+          </div>
+          <div>
+            <label class="field-label">群显示名称</label>
+            <input type="text" name="name" value="{{ group.name }}" />
+          </div>
+        </div>
+
+        <div class="toggle-grid">
+          <label class="checkbox-line">
+            <input type="checkbox" name="enabled" {% if group.enabled %}checked{% endif %} />
+            启用学习能力
+          </label>
+          <label class="checkbox-line">
+            <input type="checkbox" name="is_admin" {% if group.is_admin %}checked{% endif %} />
+            管理员群
+          </label>
+        </div>
+
+        <div class="group-card-foot">
+          <span class="muted">最近更新时间：{{ group.updated_at }}</span>
+          <button type="submit">更新群配置</button>
+        </div>
+      </form>
+      {% endfor %}
+    </div>
+  </section>
+</section>
+{% endblock %}

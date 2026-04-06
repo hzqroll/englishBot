@@ -1,40 +1,94 @@
 {% extends "base.html" %}
 
 {% block content %}
-<header class="header">
+<header class="page-hero">
   <div>
-    <h2>仪表盘</h2>
-    <p>当前管理员：{{ admin_username }}</p>
+    <p class="eyebrow">Operations Dashboard</p>
+    <h2>学习运营总览</h2>
+    <p class="hero-copy">在这里查看训练营运行状态、手动补发核心任务，并快速判断今天的学习节奏是否健康。</p>
+  </div>
+  <div class="hero-chip">
+    <span class="hero-chip-label">当前管理员</span>
+    <strong>{{ admin_username }}</strong>
   </div>
 </header>
 
-<section class="cards">
+<section class="stats-grid">
   {% for key, value in metrics.items() %}
-  <article class="card">
-    <h3>{{ key }}</h3>
-    <strong>{{ value }}</strong>
+  <article class="stat-card">
+    <p class="stat-label">{{ key }}</p>
+    <strong class="stat-value">{{ value }}</strong>
+    <span class="stat-hint">实时读取当前后台统计口径</span>
   </article>
   {% endfor %}
 </section>
 
-<section class="panel">
-  <h3>手动触发</h3>
-  <div class="trigger-grid">
-    <form method="post" action="/admin/triggers/daily_push">
-      <button type="submit">触发每日内容</button>
+<section class="panel stack-lg">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Manual Actions</p>
+      <h3>手动触发</h3>
+    </div>
+    <p class="muted">用于补发学习包、晚间卡片和周度任务。带日期的动作可重放历史业务日。</p>
+  </div>
+  <div class="action-grid">
+    <form method="post" action="/admin/triggers/daily_push" class="action-card">
+      <div>
+        <p class="action-kicker">07:30</p>
+        <h4>触发今日学习包</h4>
+        <p>重新生成并推送当天的主题内容、词块和任务。</p>
+      </div>
+      <button type="submit">立即触发</button>
     </form>
-    <form method="post" action="/admin/triggers/weekly_report">
-      <button type="submit">触发周报</button>
+    <form method="post" action="/admin/triggers/daily_error_digest" class="action-card">
+      <div>
+        <p class="action-kicker">18:00</p>
+        <h4>触发错误整理</h4>
+        <p>按用户汇总当天纠错结果，补发错误整理卡。</p>
+      </div>
+      <label class="field-label">业务日期</label>
+      <input type="date" name="target_date" />
+      <button type="submit">发送整理卡</button>
     </form>
-    <form method="post" action="/admin/triggers/weekly_quiz">
-      <button type="submit">触发周测</button>
+    <form method="post" action="/admin/triggers/daily_progress" class="action-card">
+      <div>
+        <p class="action-kicker">20:00</p>
+        <h4>触发学习进度</h4>
+        <p>汇总当天学习证据和任务进度，补发个人学习卡。</p>
+      </div>
+      <label class="field-label">业务日期</label>
+      <input type="date" name="target_date" />
+      <button type="submit">发送进度卡</button>
+    </form>
+    <form method="post" action="/admin/triggers/weekly_report" class="action-card">
+      <div>
+        <p class="action-kicker">Weekly</p>
+        <h4>触发周报</h4>
+        <p>按当前周次生成个人周报，检查复盘文案和高频错误汇总。</p>
+      </div>
+      <button type="submit">生成周报</button>
+    </form>
+    <form method="post" action="/admin/triggers/weekly_quiz" class="action-card">
+      <div>
+        <p class="action-kicker">Weekly</p>
+        <h4>触发周测</h4>
+        <p>按当前周次生成测试卡片和题目快照，验证投递链路。</p>
+      </div>
+      <button type="submit">生成周测</button>
     </form>
   </div>
 </section>
 
-<section class="panel">
-  <h3>最近任务执行</h3>
-  <table>
+<section class="panel stack-lg">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Recent Jobs</p>
+      <h3>最近任务执行</h3>
+    </div>
+    <p class="muted">查看最近一次学习包、晚间总结和周任务是否按预期落地。</p>
+  </div>
+  <div class="table-shell">
+    <table class="data-table">
     <thead>
       <tr>
         <th>任务</th>
@@ -46,13 +100,14 @@
     <tbody>
       {% for job in jobs %}
       <tr>
-        <td>{{ job.job_name }}</td>
+        <td><strong>{{ job.job_name }}</strong></td>
         <td>{{ job.biz_key }}</td>
-        <td>{{ job.status }}</td>
+        <td><span class="status-pill status-{{ job.status }}">{{ job.status }}</span></td>
         <td>{{ job.started_at }}</td>
       </tr>
       {% endfor %}
     </tbody>
-  </table>
+    </table>
+  </div>
 </section>
 {% endblock %}

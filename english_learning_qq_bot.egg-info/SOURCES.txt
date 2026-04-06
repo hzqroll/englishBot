@@ -12,6 +12,7 @@ src/admin/routes.py
 src/admin/static/admin.css
 src/admin/templates/base.html
 src/admin/templates/dashboard.html
+src/admin/templates/debug.html
 src/admin/templates/login.html
 src/admin/templates/settings.html
 src/admin/templates/users.html
@@ -30,6 +31,7 @@ src/domain/services/leveling.py
 src/domain/services/review.py
 src/domain/value_objects/__init__.py
 src/domain/value_objects/learning.py
+src/domain/value_objects/messaging.py
 src/infrastructure/__init__.py
 src/infrastructure/auth/__init__.py
 src/infrastructure/auth/security.py
@@ -43,6 +45,7 @@ src/infrastructure/db/repositories/__init__.py
 src/infrastructure/db/repositories/admin.py
 src/infrastructure/db/repositories/identity.py
 src/infrastructure/db/repositories/learning.py
+src/infrastructure/messaging/renderers.py
 src/infrastructure/providers/__init__.py
 src/infrastructure/providers/content_ted.py
 src/infrastructure/providers/llm_openai.py
@@ -54,9 +57,13 @@ src/infrastructure/settings/models.py
 src/infrastructure/settings/runtime.py
 src/plugins/__init__.py
 src/plugins/at_message.py
+src/plugins/command_catalog.py
 src/plugins/commands.py
 src/plugins/scheduler.py
+tests/test_command_catalog.py
 tests/test_error_aggregation.py
 tests/test_learning_repository.py
 tests/test_leveling.py
+tests/test_message_delivery.py
+tests/test_provider_mocks.py
 tests/test_review_service.py

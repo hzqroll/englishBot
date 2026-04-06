@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import shutil
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from nonebot import get_bots
 from nonebot.log import logger
@@ -25,11 +25,18 @@ def register_jobs() -> None:
         **_cron_kwargs(runtime_config.cron("scheduler.daily_push_cron")),
     )
     scheduler.add_job(
-        daily_reminder_job,
+        daily_error_digest_job,
         "cron",
-        id="daily_reminder",
+        id="daily_error_digest",
         replace_existing=True,
-        **_cron_kwargs(runtime_config.cron("scheduler.daily_reminder_cron")),
+        **_cron_kwargs(runtime_config.cron("scheduler.daily_error_digest_cron")),
+    )
+    scheduler.add_job(
+        daily_progress_job,
+        "cron",
+        id="daily_progress",
+        replace_existing=True,
+        **_cron_kwargs(runtime_config.cron("scheduler.daily_progress_cron")),
     )
     scheduler.add_job(
         weekly_report_job,
@@ -64,12 +71,13 @@ async def daily_push_job() -> None:
         bots = list(get_bots().values())
         for group_id in container.runtime_config.enabled_group_ids():
             await container.learning_usecase.build_today_lesson(qq_group_id=group_id)
-            message = await container.learning_usecase.get_today_task_message(qq_group_id=group_id)
+            message = await container.learning_usecase.get_today_task_broadcast_envelope(qq_group_id=group_id)
             await _send_group_envelope(
                 container=container,
                 bots=bots,
                 group_id=group_id,
-                envelope=MessageEnvelope(plain_text=message),
+                envelope=message,
+                job_name="daily_push",
             )
         await container.learning_repo.finish_job_lock(job_name="daily_push", biz_key=biz_key, status="success")
     except Exception:
@@ -77,27 +85,76 @@ async def daily_push_job() -> None:
         await container.learning_repo.finish_job_lock(job_name="daily_push", biz_key=biz_key, status="failed")
 
 
-async def daily_reminder_job() -> None:
+async def daily_error_digest_job(target_date: date | None = None) -> None:
     container = await get_or_init_container()
     await container.runtime_config.refresh()
-    biz_key = datetime.now(UTC).strftime("%Y-%m-%d")
-    if not await container.learning_repo.acquire_job_lock(job_name="daily_reminder", biz_key=biz_key):
+    target_date = target_date or datetime.now().astimezone().date()
+    biz_key = target_date.isoformat()
+    if not await container.learning_repo.acquire_job_lock(job_name="daily_error_digest", biz_key=biz_key):
         return
     try:
         bots = list(get_bots().values())
-        if container.runtime_config.daily_reminder_enabled():
-            for group_id in container.runtime_config.enabled_group_ids():
-                reminder = "今晚记得完成今日任务。如果已经完成，可以发送“复习一下”巩固旧错误点。"
+        for group_id in container.runtime_config.enabled_group_ids():
+            group = await container.identity_repo.ensure_group(group_id)
+            users = await container.identity_repo.list_enrolled_users(group.id)
+            for user in users:
+                digest = await container.report_usecase.build_daily_error_digest_envelope(
+                    qq_group_id=group_id,
+                    qq_user_id=user.qq_user_id,
+                    nickname=user.nickname,
+                    target_date=target_date,
+                )
+                if digest is None:
+                    continue
                 await _send_group_envelope(
                     container=container,
                     bots=bots,
                     group_id=group_id,
-                    envelope=MessageEnvelope(plain_text=reminder),
+                    envelope=digest,
+                    mention_qq=user.qq_user_id,
+                    job_name="daily_error_digest",
+                    user_id=user.id,
                 )
-        await container.learning_repo.finish_job_lock(job_name="daily_reminder", biz_key=biz_key, status="success")
+        await container.learning_repo.finish_job_lock(job_name="daily_error_digest", biz_key=biz_key, status="success")
     except Exception:
-        logger.exception("daily reminder job failed")
-        await container.learning_repo.finish_job_lock(job_name="daily_reminder", biz_key=biz_key, status="failed")
+        logger.exception("daily error digest job failed")
+        await container.learning_repo.finish_job_lock(job_name="daily_error_digest", biz_key=biz_key, status="failed")
+
+
+async def daily_progress_job(target_date: date | None = None) -> None:
+    container = await get_or_init_container()
+    await container.runtime_config.refresh()
+    target_date = target_date or datetime.now().astimezone().date()
+    biz_key = target_date.isoformat()
+    if not await container.learning_repo.acquire_job_lock(job_name="daily_progress", biz_key=biz_key):
+        return
+    try:
+        bots = list(get_bots().values())
+        for group_id in container.runtime_config.enabled_group_ids():
+            group = await container.identity_repo.ensure_group(group_id)
+            users = await container.identity_repo.list_enrolled_users(group.id)
+            for user in users:
+                progress = await container.report_usecase.build_daily_progress_envelope(
+                    qq_group_id=group_id,
+                    qq_user_id=user.qq_user_id,
+                    nickname=user.nickname,
+                    target_date=target_date,
+                )
+                if progress is None:
+                    continue
+                await _send_group_envelope(
+                    container=container,
+                    bots=bots,
+                    group_id=group_id,
+                    envelope=progress,
+                    mention_qq=user.qq_user_id,
+                    job_name="daily_progress",
+                    user_id=user.id,
+                )
+        await container.learning_repo.finish_job_lock(job_name="daily_progress", biz_key=biz_key, status="success")
+    except Exception:
+        logger.exception("daily progress job failed")
+        await container.learning_repo.finish_job_lock(job_name="daily_progress", biz_key=biz_key, status="failed")
 
 
 async def weekly_report_job() -> None:
@@ -123,6 +180,8 @@ async def weekly_report_job() -> None:
                     group_id=group_id,
                     envelope=report,
                     mention_qq=user.qq_user_id,
+                    job_name="weekly_report",
+                    user_id=user.id,
                 )
         await container.learning_repo.finish_job_lock(job_name="weekly_report", biz_key=biz_key, status="success")
     except Exception:
@@ -153,6 +212,8 @@ async def weekly_quiz_job() -> None:
                     group_id=group_id,
                     envelope=quiz,
                     mention_qq=user.qq_user_id,
+                    job_name="weekly_quiz",
+                    user_id=user.id,
                 )
         await container.learning_repo.finish_job_lock(job_name="weekly_quiz", biz_key=biz_key, status="success")
     except Exception:
@@ -193,13 +254,46 @@ def _cron_kwargs(expression: str) -> dict[str, str]:
     }
 
 
-async def _send_group_envelope(*, container, bots: list, group_id: str, envelope: MessageEnvelope, mention_qq: str | None = None) -> None:
+async def _send_group_envelope(
+    *,
+    container,
+    bots: list,
+    group_id: str,
+    envelope: MessageEnvelope,
+    mention_qq: str | None = None,
+    job_name: str,
+    user_id: int | None = None,
+) -> None:
+    group = await container.identity_repo.ensure_group(group_id)
     try:
-        await container.message_delivery_service.send_group_envelope(
+        result = await container.message_delivery_service.send_group_envelope(
             bots=bots,
             group_id=group_id,
             envelope=envelope,
             mention_qq=mention_qq,
         )
+        if envelope.card_snapshot_id is not None:
+            await container.learning_repo.update_daily_card_snapshot_images(
+                snapshot_id=envelope.card_snapshot_id,
+                image_paths_json=result.image_paths,
+            )
+        await container.learning_repo.create_message_delivery_log(
+            group_id=group.id,
+            user_id=user_id,
+            job_name=job_name,
+            card_snapshot_id=envelope.card_snapshot_id,
+            delivery_mode=result.delivery_mode,
+            success=True,
+            provider_response="sent",
+        )
     except Exception:
         logger.exception("failed to send message to group %s", group_id)
+        await container.learning_repo.create_message_delivery_log(
+            group_id=group.id,
+            user_id=user_id,
+            job_name=job_name,
+            card_snapshot_id=envelope.card_snapshot_id,
+            delivery_mode="failed",
+            success=False,
+            provider_response="send_failed",
+        )

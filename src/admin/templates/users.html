@@ -1,11 +1,28 @@
 {% extends "base.html" %}
 
 {% block content %}
-<header class="header">
-  <h2>用户列表</h2>
+<header class="page-hero">
+  <div>
+    <p class="eyebrow">Learners</p>
+    <h2>用户列表</h2>
+    <p class="hero-copy">查看当前沉淀到系统中的学习用户，辅助判断群活跃度和最近参与状态。</p>
+  </div>
+  <div class="hero-chip">
+    <span class="hero-chip-label">当前记录用户数</span>
+    <strong>{{ users | length }}</strong>
+  </div>
 </header>
-<section class="panel">
-  <table>
+
+<section class="panel stack-lg">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Roster</p>
+      <h3>学习成员档案</h3>
+    </div>
+    <p class="muted">默认按持久化顺序展示，后续可扩展为报名状态、等级和最近总结入口。</p>
+  </div>
+  <div class="table-shell">
+    <table class="data-table">
     <thead>
       <tr>
         <th>QQ</th>
@@ -17,14 +34,14 @@
     <tbody>
       {% for user in users %}
       <tr>
-        <td>{{ user.qq_user_id }}</td>
-        <td>{{ user.nickname }}</td>
+        <td><strong>{{ user.qq_user_id }}</strong></td>
+        <td>{{ user.nickname or "未命名" }}</td>
         <td>{{ user.joined_at }}</td>
         <td>{{ user.last_active_at }}</td>
       </tr>
       {% endfor %}
     </tbody>
-  </table>
+    </table>
+  </div>
 </section>
 {% endblock %}
-

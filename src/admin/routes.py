@@ -1,14 +1,11 @@
 from __future__ import annotations
-
-import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.application.learning_usecases import EnrollmentContext
 from src.application.message_usecases import MessageCommandContext
 from src.domain.value_objects.learning import LanguageType
 from src.infrastructure.auth.security import verify_password
@@ -34,22 +31,11 @@ def _provider_label(detected: LanguageType) -> str:
     return "tencent+openai_compatible"
 
 
-def _preview_base_url(request: Request, container) -> str:
-    return container.runtime_config.public_base_url() or str(request.base_url).rstrip("/")
-
-
 def _count_delta(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
     return {
         key: after.get(key, 0) - before.get(key, 0)
         for key in after
     }
-
-
-async def _load_card_payload(container, token: str, expected_type: str):
-    payload = container.card_link_signer.verify(token)
-    if payload.resource_type != expected_type:
-        raise ValueError("链接类型不匹配，请回到群里重新获取。")
-    return payload
 
 
 @router.get("/healthz")
@@ -125,6 +111,59 @@ async def users_page(request: Request):
     )
 
 
+@router.get("/admin/groups", response_class=HTMLResponse)
+async def groups_page(request: Request):
+    if not _current_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    container = await _container(request)
+    groups = await container.admin_usecase.list_groups()
+    return templates.TemplateResponse(
+        request,
+        "groups.html",
+        {
+            "groups": groups,
+            "admin_username": _current_admin(request),
+            "error": None,
+        },
+    )
+
+
+@router.post("/admin/groups", response_class=HTMLResponse)
+async def groups_submit(
+    request: Request,
+    group_id: str | None = Form(None),
+    qq_group_id: str = Form(...),
+    name: str = Form(""),
+    enabled: str | None = Form(None),
+    is_admin: str | None = Form(None),
+):
+    if not _current_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    container = await _container(request)
+    parsed_group_id = int(group_id) if group_id and group_id.isdigit() else None
+    try:
+        await container.admin_usecase.save_group(
+            group_id=parsed_group_id,
+            qq_group_id=qq_group_id,
+            name=name,
+            enabled=bool(enabled),
+            is_admin=bool(is_admin),
+        )
+        return RedirectResponse("/admin/groups", status_code=303)
+    except ValueError as exc:
+        groups = await container.admin_usecase.list_groups()
+        return templates.TemplateResponse(
+            request,
+            "groups.html",
+            {
+                "groups": groups,
+                "admin_username": _current_admin(request),
+                "error": str(exc),
+            },
+            status_code=400,
+        )
+
+
 @router.get("/admin/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     if not _current_admin(request):
@@ -156,12 +195,13 @@ async def settings_submit(request: Request, key: str = Form(...), value: str = F
 
 
 @router.post("/admin/triggers/{job_name}")
-async def trigger_job(request: Request, job_name: str):
+async def trigger_job(request: Request, job_name: str, target_date: str | None = Form(None)):
     if not _current_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
     from src.plugins.scheduler import (
+        daily_error_digest_job,
+        daily_progress_job,
         daily_push_job,
-        daily_reminder_job,
         nightly_backup_job,
         weekly_quiz_job,
         weekly_report_job,
@@ -169,7 +209,8 @@ async def trigger_job(request: Request, job_name: str):
 
     job_map = {
         "daily_push": daily_push_job,
-        "daily_reminder": daily_reminder_job,
+        "daily_error_digest": daily_error_digest_job,
+        "daily_progress": daily_progress_job,
         "weekly_report": weekly_report_job,
         "weekly_quiz": weekly_quiz_job,
         "nightly_backup": nightly_backup_job,
@@ -177,7 +218,16 @@ async def trigger_job(request: Request, job_name: str):
     job = job_map.get(job_name)
     if job is None:
         return RedirectResponse("/admin", status_code=303)
-    await job()
+    parsed_target_date: date | None = None
+    if target_date:
+        try:
+            parsed_target_date = date.fromisoformat(target_date)
+        except ValueError:
+            parsed_target_date = None
+    if job_name in {"daily_error_digest", "daily_progress"}:
+        await job(target_date=parsed_target_date)
+    else:
+        await job()
     return RedirectResponse("/admin", status_code=303)
 
 
@@ -259,11 +309,18 @@ async def debug_submit(
         else:
             if detected == LanguageType.ENGLISH:
                 correction = await container.correction_provider.correct_english(message_text, context=None)
-                reply = (
-                    f"纠错后：\n{correction.corrected_text}\n\n"
-                    f"中文翻译：\n{correction.zh_translation}\n\n"
-                    f"说明：{correction.explanation}"
-                )
+                parts = [f"✏️ {correction.corrected_text}"]
+                if correction.zh_translation:
+                    parts.append(f"\n📖 {correction.zh_translation}")
+                if correction.explanation:
+                    parts.append(f"\n💡 {correction.explanation}")
+                if correction.error_points:
+                    lines = []
+                    for item in correction.error_points[:5]:
+                        label = item.error_type or "修改"
+                        lines.append(f"  {label}：{item.source_fragment} → {item.correct_fragment}")
+                    parts.append("\n🔍 错误点\n" + "\n".join(lines))
+                reply = "\n".join(parts)
             else:
                 translated = await container.translate_provider.translate(
                     message_text,
@@ -275,7 +332,7 @@ async def debug_submit(
                     base_translation=translated.translated_text,
                     context=None,
                 )
-                reply = f"英文翻译：\n{translated.translated_text}\n\n更自然表达：\n{natural}"
+                reply = f"🌐 {translated.translated_text}\n\n✨ {natural}"
             mode = "dry_run_no_db"
             provider = _provider_label(detected)
             receipt = None
@@ -305,215 +362,3 @@ async def debug_submit(
             "result": result,
         },
     )
-
-
-@router.get("/admin/cards", response_class=HTMLResponse)
-async def card_preview_page(request: Request):
-    if not _current_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
-    container = await _container(request)
-    enabled_groups = container.runtime_config.enabled_group_ids()
-    default_group_id = enabled_groups[0] if enabled_groups else "123456789"
-    return templates.TemplateResponse(
-        request,
-        "cards.html",
-        {
-            "admin_username": _current_admin(request),
-            "default_group_id": default_group_id,
-            "form_data": None,
-            "result": None,
-        },
-    )
-
-
-@router.post("/admin/cards", response_class=HTMLResponse)
-async def card_preview_submit(
-    request: Request,
-    resource_type: str = Form(...),
-    group_id: str = Form(...),
-    user_id: str = Form(...),
-    nickname: str = Form(...),
-):
-    if not _current_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
-    container = await _container(request)
-    form_data = {
-        "resource_type": resource_type,
-        "group_id": group_id,
-        "user_id": user_id,
-        "nickname": nickname,
-    }
-    preview_base_url = _preview_base_url(request, container)
-    try:
-        await container.learning_usecase.enroll(
-            EnrollmentContext(
-                qq_group_id=group_id,
-                group_name="Card Preview Group",
-                qq_user_id=user_id,
-                nickname=nickname,
-            )
-        )
-        if resource_type == "task":
-            envelope = await container.learning_usecase.get_today_task_envelope(
-                qq_group_id=group_id,
-                qq_user_id=user_id,
-                nickname=nickname,
-                base_url_override=preview_base_url,
-            )
-        elif resource_type == "quiz":
-            envelope = await container.quiz_usecase.start_weekly_quiz_envelope(
-                qq_group_id=group_id,
-                qq_user_id=user_id,
-                nickname=nickname,
-                base_url_override=preview_base_url,
-            )
-        elif resource_type == "report":
-            envelope = await container.report_usecase.build_weekly_report_envelope(
-                qq_group_id=group_id,
-                qq_user_id=user_id,
-                nickname=nickname,
-                base_url_override=preview_base_url,
-            )
-        else:
-            raise ValueError("不支持的卡片类型。")
-        result = {
-            "resource_type": resource_type,
-            "plain_text": envelope.plain_text,
-            "fallback_text": envelope.delivery_text(),
-            "card_link_url": envelope.card_link_url,
-            "card_payload_json": json.dumps(envelope.card_payload, ensure_ascii=False, indent=2)
-            if envelope.card_payload
-            else "",
-        }
-    except Exception as exc:  # pragma: no cover - manual preview path
-        result = {
-            "resource_type": resource_type,
-            "plain_text": f"{exc.__class__.__name__}: {exc}",
-            "fallback_text": "",
-            "card_link_url": "",
-            "card_payload_json": "",
-        }
-    return templates.TemplateResponse(
-        request,
-        "cards.html",
-        {
-            "admin_username": _current_admin(request),
-            "default_group_id": group_id,
-            "form_data": form_data,
-            "result": result,
-        },
-    )
-
-
-@router.get("/learn/task/{token}", response_class=HTMLResponse)
-async def learn_task_page(request: Request, token: str):
-    container = await _container(request)
-    try:
-        payload = await _load_card_payload(container, token, "task")
-        page = await container.task_page_usecase.load(payload)
-        return templates.TemplateResponse(
-            request,
-            "learn_task.html",
-            {"page": page, "token": token, "submit_result": None, "error": None},
-        )
-    except Exception as exc:
-        return templates.TemplateResponse(
-            request,
-            "learn_error.html",
-            {"title": "任务页不可用", "error": str(exc)},
-            status_code=400,
-        )
-
-
-@router.post("/learn/task/{token}", response_class=HTMLResponse)
-async def learn_task_submit(request: Request, token: str, task_id: int = Form(...), submission_text: str = Form(...)):
-    container = await _container(request)
-    try:
-        payload = await _load_card_payload(container, token, "task")
-        submit_result = await container.task_page_usecase.submit(
-            payload,
-            task_id=task_id,
-            content=submission_text,
-        )
-        page = await container.task_page_usecase.load(payload)
-        return templates.TemplateResponse(
-            request,
-            "learn_task.html",
-            {"page": page, "token": token, "submit_result": submit_result, "error": None},
-        )
-    except Exception as exc:
-        return templates.TemplateResponse(
-            request,
-            "learn_error.html",
-            {"title": "任务提交失败", "error": str(exc)},
-            status_code=400,
-        )
-
-
-@router.get("/learn/quiz/{token}", response_class=HTMLResponse)
-async def learn_quiz_page(request: Request, token: str):
-    container = await _container(request)
-    try:
-        payload = await _load_card_payload(container, token, "quiz")
-        page = await container.quiz_page_usecase.load(payload)
-        return templates.TemplateResponse(
-            request,
-            "learn_quiz.html",
-            {"page": page, "token": token, "submit_result": None, "error": None},
-        )
-    except Exception as exc:
-        return templates.TemplateResponse(
-            request,
-            "learn_error.html",
-            {"title": "周测页不可用", "error": str(exc)},
-            status_code=400,
-        )
-
-
-@router.post("/learn/quiz/{token}", response_class=HTMLResponse)
-async def learn_quiz_submit(request: Request, token: str):
-    container = await _container(request)
-    try:
-        payload = await _load_card_payload(container, token, "quiz")
-        form = await request.form()
-        answers: dict[int, str] = {}
-        for key, value in form.items():
-            if not key.startswith("q_"):
-                continue
-            index_text = key.removeprefix("q_")
-            if index_text.isdigit():
-                answers[int(index_text)] = str(value).strip().upper()
-        submit_result = await container.quiz_page_usecase.submit(payload, answers=answers)
-        page = await container.quiz_page_usecase.load(payload)
-        return templates.TemplateResponse(
-            request,
-            "learn_quiz.html",
-            {"page": page, "token": token, "submit_result": submit_result, "error": None},
-        )
-    except Exception as exc:
-        return templates.TemplateResponse(
-            request,
-            "learn_error.html",
-            {"title": "周测提交失败", "error": str(exc)},
-            status_code=400,
-        )
-
-
-@router.get("/learn/report/{token}", response_class=HTMLResponse)
-async def learn_report_page(request: Request, token: str):
-    container = await _container(request)
-    try:
-        payload = await _load_card_payload(container, token, "report")
-        page = await container.report_page_usecase.load(payload)
-        return templates.TemplateResponse(
-            request,
-            "learn_report.html",
-            {"page": page, "error": None},
-        )
-    except Exception as exc:
-        return templates.TemplateResponse(
-            request,
-            "learn_error.html",
-            {"title": "周报页不可用", "error": str(exc)},
-            status_code=400,
-        )

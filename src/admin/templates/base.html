@@ -9,19 +9,49 @@
   <body>
     <div class="shell">
       <aside class="sidebar">
-        <h1>English Bot</h1>
-        <nav>
-          <a href="/admin">仪表盘</a>
-          <a href="/admin/users">用户</a>
-          <a href="/admin/settings">动态配置</a>
-          <a href="/admin/debug">联调调试</a>
-          <a href="/admin/cards">卡片预览</a>
-          <a href="/admin/logout">退出</a>
+        <div class="brand-block">
+          <p class="eyebrow">Learning Console</p>
+          <h1>English Bot</h1>
+          <p class="brand-copy">面向群英语学习运营、纠错复盘与每日进度跟踪的后台工作台。</p>
+        </div>
+        <nav class="nav-list">
+          <a class="nav-link {% if request.url.path == '/admin' %}active{% endif %}" href="/admin">
+            <span class="nav-kicker">Overview</span>
+            <strong>仪表盘</strong>
+          </a>
+          <a class="nav-link {% if request.url.path.startswith('/admin/users') %}active{% endif %}" href="/admin/users">
+            <span class="nav-kicker">People</span>
+            <strong>用户</strong>
+          </a>
+          <a class="nav-link {% if request.url.path.startswith('/admin/groups') %}active{% endif %}" href="/admin/groups">
+            <span class="nav-kicker">Groups</span>
+            <strong>学习群</strong>
+          </a>
+          <a class="nav-link {% if request.url.path.startswith('/admin/settings') %}active{% endif %}" href="/admin/settings">
+            <span class="nav-kicker">Config</span>
+            <strong>动态配置</strong>
+          </a>
+          <a class="nav-link {% if request.url.path.startswith('/admin/debug') %}active{% endif %}" href="/admin/debug">
+            <span class="nav-kicker">Tools</span>
+            <strong>联调调试</strong>
+          </a>
+          <a class="nav-link nav-link-ghost" href="/admin/logout">
+            <span class="nav-kicker">Session</span>
+            <strong>退出登录</strong>
+          </a>
         </nav>
+        <div class="sidebar-note">
+          <p class="sidebar-note-title">当前后台用途</p>
+          <ul>
+            <li>监控学习群活跃与任务执行</li>
+            <li>手动触发晚间总结与周报</li>
+            <li>调试翻译、纠错与落库链路</li>
+          </ul>
+        </div>
       </aside>
       <main class="main">
         {% block content %}{% endblock %}
       </main>
     </div>
   </body>
-  </html>
+</html>
