@@ -29,7 +29,7 @@ uv run pytest tests/test_learning_repository.py::test_function_name
 - **`src/plugins/`** — NoneBot2 插件，消息与调度入口（`at_message.py`、`commands.py`、`scheduler.py`）
 - **`src/application/`** — 用例层，编排业务流程（MessageUseCase、LearningUseCase、QuizUseCase、ReportUseCase）
 - **`src/domain/`** — 领域层，纯业务规则：实体（entities/）、领域服务（services/）、值对象（value_objects/）
-- **`src/infrastructure/`** — 基础设施层：数据库（db/）、外部服务（providers/）、配置（settings/）、鉴权（auth/）、缓存（cache/）
+- **`src/infrastructure/`** — 基础设施层：数据库（db/）、外部服务（providers/）、配置（settings/）、鉴权（auth/）、缓存（cache/）、消息渲染（messaging/）
 - **`src/admin/`** — FastAPI + Jinja2 管理后台
 
 ### 依赖注入
@@ -65,12 +65,34 @@ QQ 群 @机器人 → NoneBot2（OneBot v11）→ `plugins/at_message.py` 或 `p
 
 ### 消息渲染与卡片
 
-UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`），同时携带纯文本和卡片数据。`MessageDeliveryService`（`src/infrastructure/messaging/`）根据配置选择渲染策略：
+UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`），携带纯文本和可选的 `CardDocument` 结构化卡片数据。`MessageDeliveryService`（`src/infrastructure/messaging/renderers.py`）根据 `render_mode` 配置选择渲染策略：
 
-- `PlainTextRenderer`：纯文本 + CQ 码
-- `NapCatCardRenderer`：JSON 卡片消息
+- **`PlainTextRenderer`**：纯文本 + CQ 码
+- **`ImageCardRenderer`**：用 Pillow 生成 PNG 图片卡片（1080×1520px），支持多页分页、主题配色、自动文字换行
 
-渲染链路：先尝试卡片 → 失败时回退纯文本（需 `card_fallback_to_text` 开启）。卡片中的学习页链接通过 `CardLinkSigner`（`src/infrastructure/auth/card_links.py`）签名，支持过期校验。
+渲染链路：`render_mode == "image_card"` 时生成图片 → 单页直接发送 / 多页用合并转发 → 失败时回退纯文本（需 `card_fallback_to_text` 开启）。渲染的图片缓存在 `data/rendered_cards/`，自动清理超过 200 个的旧文件。
+
+`CardDocument` 是结构化的卡片文档模型（标题、副标题、`CardSection` 列表、页脚、主题），由 UseCase 构建，再交给 `ImageCardRenderer` 渲染为图片。
+
+### 定时任务
+
+六个 cron 定时任务（`src/plugins/scheduler.py`），通过 `nonebot-apscheduler` 注册：
+1. **daily_push** — 晨间推送课程（默认 8:00）
+2. **daily_error_digest** — 晚间错误摘要（默认 18:00）
+3. **daily_progress** — 每日学习进度（默认 20:00）
+4. **weekly_report** — 周报（周一 9:00）
+5. **weekly_quiz** — 周测（周日 19:00）
+6. **nightly_backup** — 数据库备份（每日 2:00）
+
+所有任务通过 `acquire_job_lock()` 防止并发执行。管理后台 `/admin/triggers/{job_name}` 支持手动触发。修改运行时配置后需调用 `register_jobs()` 刷新调度器。
+
+### 错误分类体系
+
+`src/domain/services/error_taxonomy.py` 提供两层错误分类：
+- `label_error_type()` — 返回中文标签（"时态"、"拼写"等）
+- `categorize_error_type()` — 归为 `"word"`（单词/表达类）或 `"grammar"`（语法类）
+
+纠错结果通过 `create_error_occurrences()` 记录到 `error_occurrences` 表，关联消息事件和 error_point，支持按类别统计。
 
 ### 关键领域逻辑
 
@@ -82,9 +104,10 @@ UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`
 ### 管理后台
 
 `src/admin/routes.py` 中 FastAPI 路由，Session 认证。关键页面：
-- `/admin/debug` — 无需 QQ 即可测试翻译/纠错流程
-- `/admin/cards` — 生成任务/周测/周报的本地签名链接预览
-- 运行时配置覆盖通过 `RuntimeConfigService` 实现热更新
+- `/admin/debug` — 无需 QQ 即可测试翻译/纠错流程（dry_run 和 persist_to_db 两种模式）
+- `/admin/cards` — 生成任务/周测/周报的卡片预览
+- `/admin/settings` — 运行时配置覆盖，修改后自动刷新调度器
+- `/admin/triggers/{job_name}` — 手动触发定时任务
 
 ## 开发约定
 
@@ -94,3 +117,4 @@ UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`
 - `alembic/` 目录已初始化但当前使用启动时 auto-create，非强制迁移
 - Provider 缺少配置时走降级而非报错
 - 测试用轻量 stub 类注入依赖，数据库测试用 `tmp_path` 临时 SQLite，不依赖 mock 框架
+- Pillow 用于图片卡片渲染，字体依赖系统字体路径
