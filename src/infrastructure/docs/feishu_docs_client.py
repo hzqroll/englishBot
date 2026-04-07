@@ -66,16 +66,14 @@ class FeishuDocsClient:
 
     def append_blocks(self, *, document_id: str, blocks: list[dict]) -> None:
         """向文档末尾追加内容块。"""
+        body = CreateDocumentBlockChildrenRequestBody(
+            d={"children": blocks, "index": -1}
+        )
         request = (
             CreateDocumentBlockChildrenRequest.builder()
             .document_id(document_id)
             .block_id(document_id)
-            .request_body(
-                CreateDocumentBlockChildrenRequestBody.builder()
-                .children(blocks)
-                .index(-1)
-                .build()
-            )
+            .request_body(body)
             .build()
         )
         resp = self._client.docx.v1.document_block_children.create(request)
