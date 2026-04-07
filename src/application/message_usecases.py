@@ -3,13 +3,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+from src.application.message_intents import (
+    EXPLICIT_DIALOGUE_ANALYSIS_PREFIX,
+    extract_explicit_dialogue_analysis_text,
+    is_recent_chat_analysis_request,
+)
 from src.domain.services.error_points import ErrorAggregator
 from src.domain.services.error_taxonomy import categorize_error_type, label_error_type
 from src.domain.services.review import ReviewScheduler
+from src.domain.value_objects.conversation import DialogueAnalysisResult, SpeakerFeedback
 from src.domain.value_objects.learning import CorrectionResult, ErrorPointPayload, LanguageType
 from src.infrastructure.cache.context_store import ContextStore
+from src.infrastructure.cache.group_dialogue_store import GroupDialogueSnapshot, GroupDialogueStore
 from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
+from src.infrastructure.providers.english_correction import EnglishCorrectionProvider
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
 from src.infrastructure.providers.translate_tencent import TencentTranslateProvider
 
@@ -31,28 +39,44 @@ class MessageUseCase:
         identity_repo: IdentityRepository,
         learning_repo: LearningRepository,
         translate_provider: TencentTranslateProvider,
-        correction_provider: OpenAICompatibleProvider,
+        english_correction_provider: EnglishCorrectionProvider,
+        llm_provider: OpenAICompatibleProvider,
         context_store: ContextStore,
+        group_dialogue_store: GroupDialogueStore,
         error_aggregator: ErrorAggregator,
         review_scheduler: ReviewScheduler,
+        recent_chat_min_sentences: int = 10,
     ) -> None:
         self._identity_repo = identity_repo
         self._learning_repo = learning_repo
         self._translate_provider = translate_provider
-        self._correction_provider = correction_provider
+        self._english_correction_provider = english_correction_provider
+        self._llm_provider = llm_provider
         self._context_store = context_store
+        self._group_dialogue_store = group_dialogue_store
         self._error_aggregator = error_aggregator
         self._review_scheduler = review_scheduler
+        self._recent_chat_min_sentences = recent_chat_min_sentences
 
     async def handle_at_message(self, ctx: MessageCommandContext) -> str:
+        cleaned = ctx.message_text.strip()
+        explicit_dialogue = extract_explicit_dialogue_analysis_text(cleaned)
+        is_recent_dialogue_request = is_recent_chat_analysis_request(cleaned)
+        dialogue_snapshot = (
+            self._group_dialogue_store.get_group_dialogue(ctx.group_id)
+            if is_recent_dialogue_request
+            else GroupDialogueSnapshot()
+        )
+        language_sample = explicit_dialogue or dialogue_snapshot.rendered_text or cleaned
+
         group = await self._identity_repo.ensure_group(ctx.group_id, ctx.group_name)
         user = await self._identity_repo.ensure_user(ctx.user_id, ctx.nickname)
-        detected = await self._translate_provider.detect_language(ctx.message_text)
+        detected = await self._translate_provider.detect_language(language_sample)
         event = await self._learning_repo.create_message_event(
             raw_event_id=ctx.raw_event_id,
             group_id=group.id,
             user_id=user.id,
-            message_text=ctx.message_text,
+            message_text=cleaned,
             event_type="at_message",
             source_type="at_message",
             is_to_bot=True,
@@ -62,43 +86,59 @@ class MessageUseCase:
             biz_date_local=date.today(),
         )
         context = self._context_store.get(ctx.group_id, ctx.user_id)
+        success = True
 
-        if detected == LanguageType.ENGLISH:
-            correction = await self._correction_provider.correct_english(ctx.message_text, context=context)
+        if explicit_dialogue is not None:
+            analysis = await self._llm_provider.analyze_dialogue(explicit_dialogue, source_kind="explicit_text")
+            reply = self._render_dialogue_analysis_reply(analysis)
+            action_type = "dialogue_analysis_explicit"
+            provider = "openai_compatible"
+        elif cleaned.startswith(EXPLICIT_DIALOGUE_ANALYSIS_PREFIX):
+            reply = f"请在“{EXPLICIT_DIALOGUE_ANALYSIS_PREFIX}：”后粘贴需要分析的对话内容。"
+            action_type = "dialogue_analysis_usage"
+            provider = "message-intent"
+            success = False
+        elif is_recent_dialogue_request:
+            if dialogue_snapshot.sentence_count < self._recent_chat_min_sentences or not dialogue_snapshot.rendered_text:
+                reply = f"最近聊天内容不足 {self._recent_chat_min_sentences} 句，暂时无法整体分析。"
+                action_type = "dialogue_analysis_group_cache"
+                provider = "group-dialogue-cache"
+                success = False
+            else:
+                analysis = await self._llm_provider.analyze_dialogue(
+                    dialogue_snapshot.rendered_text,
+                    source_kind="group_cache",
+                )
+                reply = self._render_dialogue_analysis_reply(analysis)
+                action_type = "dialogue_analysis_group_cache"
+                provider = "openai_compatible"
+        elif detected == LanguageType.ENGLISH:
+            correction = await self._english_correction_provider.correct_english(cleaned, context=context)
             await self._persist_error_points(event.id, user.id, group.id, correction.error_points)
             reply = self._render_english_reply(correction)
             action_type = "english_correction"
+            provider = correction.provider
         else:
-            base_translation = await self._translate_provider.translate(
-                ctx.message_text,
+            translated = await self._translate_provider.translate(
+                cleaned,
                 source_lang=detected,
                 target_lang=LanguageType.ENGLISH,
             )
-            natural = await self._correction_provider.improve_translation(
-                source_text=ctx.message_text,
-                base_translation=base_translation.translated_text,
-                context=context,
-            )
-            reply = self._render_chinese_reply(
-                translated_text=base_translation.translated_text,
-                natural_text=natural,
-            )
+            reply = self._render_chinese_reply(translated_text=translated.translated_text)
             action_type = "chinese_translation"
+            provider = translated.provider
 
         await self._learning_repo.create_interaction_result(
             event_id=event.id,
             action_type=action_type,
-            provider=(
-                "tencent+openai_compatible"
-                if detected != LanguageType.ENGLISH
-                else "openai_compatible"
-            ),
+            provider=provider,
             reply_text=reply,
+            success=success,
         )
         self._context_store.put(
             ctx.group_id,
             ctx.user_id,
-            summary=f"最近一句：{ctx.message_text}\n最近回复：{reply[:120]}",
+            summary=f"最近一句：{cleaned}\n最近回复：{reply[:120]}",
         )
         return reply
 
@@ -157,8 +197,26 @@ class MessageUseCase:
                 parts.append("\n📚 语法纠错\n" + "\n".join(grammar_lines))
         return "\n".join(parts)
 
-    def _render_chinese_reply(self, *, translated_text: str, natural_text: str) -> str:
-        parts = [f"🌐 {translated_text}"]
-        if natural_text:
-            parts.append(f"\n✨ {natural_text}")
-        return "\n".join(parts)
+    def _render_chinese_reply(self, *, translated_text: str) -> str:
+        return f"🌐 {translated_text}"
+
+    def _render_dialogue_analysis_reply(self, result: DialogueAnalysisResult) -> str:
+        dialogue_text = result.translated_dialogue.strip() or "未生成英文版对话。"
+        parts = [f"🌐 {dialogue_text}"]
+        feedback_text = self._render_speaker_feedbacks(result.speaker_feedbacks)
+        if feedback_text:
+            parts.append(f"\n✨ {feedback_text}")
+        return "\n\n".join(parts)
+
+    def _render_speaker_feedbacks(self, speaker_feedbacks: list[SpeakerFeedback]) -> str:
+        if not speaker_feedbacks:
+            return "未发现明显语言问题。"
+
+        blocks: list[str] = []
+        for feedback in speaker_feedbacks:
+            blocks.append(f"{feedback.speaker}：")
+            if feedback.overall_comment:
+                blocks.append(f"  总评：{feedback.overall_comment}")
+            for issue in feedback.issues:
+                blocks.append(f"  - {issue}")
+        return "\n".join(blocks)

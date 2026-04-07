@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -15,6 +17,7 @@ from src.domain.services.error_points import ErrorAggregator
 from src.domain.services.leveling import LevelService
 from src.domain.services.review import ReviewScheduler
 from src.infrastructure.cache.context_store import ContextStore
+from src.infrastructure.cache.group_dialogue_store import GroupDialogueStore
 from src.infrastructure.channels.base import ChannelAdapter
 from src.infrastructure.channels.feishu import FeishuChannel
 from src.infrastructure.channels.onebot import OneBotChannel
@@ -24,6 +27,7 @@ from src.infrastructure.db.repositories.learning import LearningRepository
 from src.infrastructure.db.session import create_engine, create_session_factory, init_db
 from src.infrastructure.messaging.renderers import ImageCardRenderer, MessageDeliveryService, PlainTextRenderer
 from src.infrastructure.providers.curriculum_static import StaticCurriculumProvider
+from src.infrastructure.providers.english_language_tool import LanguageToolEnglishProvider
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
 from src.infrastructure.providers.translate_tencent import TencentTranslateProvider
 from src.infrastructure.settings.loader import load_settings
@@ -40,10 +44,12 @@ class ServiceContainer:
     learning_repo: LearningRepository
     admin_repo: AdminRepository
     translate_provider: TencentTranslateProvider
+    english_correction_provider: LanguageToolEnglishProvider
     correction_provider: OpenAICompatibleProvider
     content_provider: StaticCurriculumProvider
     runtime_config: RuntimeConfigService
     context_store: ContextStore
+    group_dialogue_store: GroupDialogueStore
     plain_text_renderer: PlainTextRenderer
     image_card_renderer: ImageCardRenderer
     message_delivery_service: MessageDeliveryService
@@ -57,6 +63,14 @@ class ServiceContainer:
 
 
 _container: ServiceContainer | None = None
+logger = logging.getLogger(__name__)
+
+
+async def _warm_english_provider(provider: LanguageToolEnglishProvider) -> None:
+    try:
+        await provider.warmup()
+    except Exception:  # pragma: no cover - defensive logging for background warmup
+        logger.exception("english correction provider warmup failed")
 
 
 async def build_container(settings: EffectiveSettings) -> ServiceContainer:
@@ -79,6 +93,10 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         base_url=settings.runtime.llm_base_url,
         model=settings.runtime.llm_model,
     )
+    english_correction_provider = LanguageToolEnglishProvider(
+        translate_provider=translate_provider,
+        fallback_provider=correction_provider,
+    )
     content_provider = StaticCurriculumProvider(
         lexicon_path=settings.project_root / "resources" / "lexicon" / "bec_advanced.yaml",
         theme_path=settings.project_root / "resources" / "themes" / "office_scenarios.yaml",
@@ -86,6 +104,7 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
     runtime_config = RuntimeConfigService(settings=settings, learning_repo=learning_repo, admin_repo=admin_repo)
     await runtime_config.refresh()
     context_store = ContextStore(ttl_minutes=settings.static.bot.context_ttl_minutes)
+    group_dialogue_store = GroupDialogueStore()
     conversation_analysis_service = ConversationAnalysisService()
     level_service = LevelService()
     error_aggregator = ErrorAggregator()
@@ -102,15 +121,19 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         identity_repo=identity_repo,
         learning_repo=learning_repo,
         translate_provider=translate_provider,
-        correction_provider=correction_provider,
+        english_correction_provider=english_correction_provider,
+        llm_provider=correction_provider,
         context_store=context_store,
+        group_dialogue_store=group_dialogue_store,
         error_aggregator=error_aggregator,
         review_scheduler=review_scheduler,
+        recent_chat_min_sentences=settings.static.message.group_dialogue_trigger_min_sentences,
     )
     conversation_usecase = ConversationUseCase(
         identity_repo=identity_repo,
         learning_repo=learning_repo,
         analysis_service=conversation_analysis_service,
+        group_dialogue_store=group_dialogue_store,
     )
     learning_usecase = LearningUseCase(
         identity_repo=identity_repo,
@@ -141,6 +164,7 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         settings=settings,
     )
     await admin_usecase.bootstrap_admin()
+    asyncio.create_task(_warm_english_provider(english_correction_provider))
     container = ServiceContainer(
         settings=settings,
         engine=engine,
@@ -149,10 +173,12 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         learning_repo=learning_repo,
         admin_repo=admin_repo,
         translate_provider=translate_provider,
+        english_correction_provider=english_correction_provider,
         correction_provider=correction_provider,
         content_provider=content_provider,
         runtime_config=runtime_config,
         context_store=context_store,
+        group_dialogue_store=group_dialogue_store,
         plain_text_renderer=plain_text_renderer,
         image_card_renderer=image_card_renderer,
         message_delivery_service=message_delivery_service,

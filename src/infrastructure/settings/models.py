@@ -84,6 +84,7 @@ class MessageSettings(BaseModel):
     render_mode: str = "image_card"
     enable_task_cards: bool = True
     card_fallback_to_text: bool = True
+    group_dialogue_trigger_min_sentences: int = 10
 
 
 class FeishuSettings(BaseModel):

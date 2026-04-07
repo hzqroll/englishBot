@@ -65,6 +65,12 @@ class RuntimeConfigService:
     def card_fallback_to_text(self) -> bool:
         return self._get("message.card_fallback_to_text", self.settings.static.message.card_fallback_to_text)
 
+    def group_dialogue_trigger_min_sentences(self) -> int:
+        return self._get(
+            "message.group_dialogue_trigger_min_sentences",
+            self.settings.static.message.group_dialogue_trigger_min_sentences,
+        )
+
     def render_mode_for_group(self, group_id: str) -> str:
         try:
             gid = int(group_id)
@@ -97,6 +103,7 @@ class RuntimeConfigService:
             "message.render_mode": self.render_mode(),
             "message.enable_task_cards": self.enable_task_cards(),
             "message.card_fallback_to_text": self.card_fallback_to_text(),
+            "message.group_dialogue_trigger_min_sentences": self.group_dialogue_trigger_min_sentences(),
             "scheduler.daily_push_cron": self.cron("scheduler.daily_push_cron"),
             "scheduler.daily_error_digest_cron": self.cron("scheduler.daily_error_digest_cron"),
             "scheduler.daily_progress_cron": self.cron("scheduler.daily_progress_cron"),

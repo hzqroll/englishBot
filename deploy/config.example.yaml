@@ -38,3 +38,4 @@ message:
   render_mode: image_card
   enable_task_cards: true
   card_fallback_to_text: true
+  group_dialogue_trigger_min_sentences: 10

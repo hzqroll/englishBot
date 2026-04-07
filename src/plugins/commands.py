@@ -6,6 +6,8 @@ from nonebot.rule import Rule
 
 from src.application.conversation_usecases import ConversationContext
 from src.application.learning_usecases import EnrollmentContext
+from src.application.message_intents import is_analysis_control_text
+from src.application.message_usecases import MessageCommandContext
 from src.domain.value_objects.messaging import MessageEnvelope
 from src.infrastructure.settings.container import ServiceContainer, get_or_init_container
 from src.plugins.command_catalog import is_fixed_command_text, match_fixed_command, render_help_text
@@ -22,7 +24,8 @@ def _command_text(event: GroupMessageEvent) -> str:
 def _matches_learning_command(event: Event) -> bool:
     if not isinstance(event, GroupMessageEvent):
         return False
-    return is_fixed_command_text(_command_text(event))
+    text = _command_text(event)
+    return is_fixed_command_text(text) or is_analysis_control_text(text)
 
 
 group_command = on_message(rule=Rule(_matches_learning_command), priority=5, block=True)
@@ -177,6 +180,28 @@ async def _handle_weekly_report(
     )
 
 
+async def _handle_analysis_control_text(
+    *,
+    container: ServiceContainer,
+    group_id: str,
+    group_name: str,
+    user_id: str,
+    nickname: str,
+    text: str,
+    raw_event_id: str,
+) -> str:
+    return await container.message_usecase.handle_at_message(
+        MessageCommandContext(
+            raw_event_id=raw_event_id,
+            group_id=group_id,
+            group_name=group_name,
+            user_id=user_id,
+            nickname=nickname,
+            message_text=text,
+        )
+    )
+
+
 async def handle_fixed_command_text(
     *,
     group_id: str,
@@ -190,6 +215,18 @@ async def handle_fixed_command_text(
     container = container or await get_or_init_container()
     if not container.runtime_config.is_enabled_chat(group_id):
         return MessageEnvelope(plain_text="当前群未启用学习功能。")
+
+    if is_analysis_control_text(text):
+        message = await _handle_analysis_control_text(
+            container=container,
+            group_id=group_id,
+            group_name=group_name,
+            user_id=user_id,
+            nickname=nickname,
+            text=text,
+            raw_event_id=raw_event_id,
+        )
+        return _to_envelope(message)
 
     await container.conversation_usecase.record_command_message(
         ConversationContext(

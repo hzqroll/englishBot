@@ -6,6 +6,10 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from src.application.message_intents import (
+    extract_explicit_dialogue_analysis_text,
+    is_recent_chat_analysis_request,
+)
 from src.application.message_usecases import MessageCommandContext
 from src.domain.value_objects.learning import LanguageType
 from src.infrastructure.auth.security import verify_password
@@ -25,10 +29,12 @@ async def _container(request: Request):
     return await ensure_container(settings)
 
 
-def _provider_label(detected: LanguageType) -> str:
-    if detected == LanguageType.ENGLISH:
+def _provider_label(text: str, detected: LanguageType) -> str:
+    if extract_explicit_dialogue_analysis_text(text) is not None or is_recent_chat_analysis_request(text):
         return "openai_compatible"
-    return "tencent+openai_compatible"
+    if detected == LanguageType.ENGLISH:
+        return "language-tool+tencent"
+    return "tencent"
 
 
 def _count_delta(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
@@ -342,15 +348,17 @@ async def debug_submit(
                 group_id=group.id,
             )
             mode = "persist_to_db"
-            provider = _provider_label(detected)
+            provider = _provider_label(message_text, detected)
             receipt = {
                 "event_id": created_event.id if created_event else None,
                 "raw_event_id": raw_event_id,
                 "delta": _count_delta(before_counts, after_counts),
             }
         else:
-            if detected == LanguageType.ENGLISH:
-                correction = await container.correction_provider.correct_english(message_text, context=None)
+            if extract_explicit_dialogue_analysis_text(message_text) is not None or is_recent_chat_analysis_request(message_text):
+                reply = "dry_run 暂不支持整体对话分析，请使用 persist_to_db 或在线消息触发。"
+            elif detected == LanguageType.ENGLISH:
+                correction = await container.english_correction_provider.correct_english(message_text, context=None)
                 parts = [f"✏️ {correction.corrected_text}"]
                 if correction.zh_translation:
                     parts.append(f"\n📖 {correction.zh_translation}")
@@ -369,14 +377,9 @@ async def debug_submit(
                     source_lang=detected,
                     target_lang=LanguageType.ENGLISH,
                 )
-                natural = await container.correction_provider.improve_translation(
-                    source_text=message_text,
-                    base_translation=translated.translated_text,
-                    context=None,
-                )
-                reply = f"🌐 {translated.translated_text}\n\n✨ {natural}"
+                reply = f"🌐 {translated.translated_text}"
             mode = "dry_run_no_db"
-            provider = _provider_label(detected)
+            provider = _provider_label(message_text, detected)
             receipt = None
         result = {
             "mode": mode,

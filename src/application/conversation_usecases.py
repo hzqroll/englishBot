@@ -6,6 +6,7 @@ from datetime import date
 from src.domain.services.conversation_analysis import ConversationAnalysisService
 from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
+from src.infrastructure.cache.group_dialogue_store import GroupDialogueStore
 
 
 @dataclass(slots=True)
@@ -25,10 +26,12 @@ class ConversationUseCase:
         identity_repo: IdentityRepository,
         learning_repo: LearningRepository,
         analysis_service: ConversationAnalysisService,
+        group_dialogue_store: GroupDialogueStore | None = None,
     ) -> None:
         self._identity_repo = identity_repo
         self._learning_repo = learning_repo
         self._analysis_service = analysis_service
+        self._group_dialogue_store = group_dialogue_store or GroupDialogueStore()
 
     async def observe_passive_group_message(self, ctx: ConversationContext) -> None:
         cleaned = ctx.message_text.strip()
@@ -64,6 +67,12 @@ class ConversationUseCase:
             group_id=group.id,
             biz_date=today,
             payloads=observation.evidence_payloads,
+        )
+        self._group_dialogue_store.append_group_message(
+            group_id=ctx.group_id,
+            user_id=ctx.user_id,
+            nickname=ctx.nickname,
+            text=cleaned,
         )
 
     async def record_command_message(self, ctx: ConversationContext) -> None:

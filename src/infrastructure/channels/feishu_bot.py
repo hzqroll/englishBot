@@ -9,6 +9,7 @@ import lark_oapi as lark
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 
 from src.application.conversation_usecases import ConversationContext
+from src.application.message_intents import is_analysis_control_text
 from src.application.message_usecases import MessageCommandContext
 from src.infrastructure.channels.feishu import FeishuChannel
 from src.infrastructure.settings.container import get_container
@@ -156,6 +157,8 @@ class FeishuBot:
                 )
             )
             await channel.send_text(chat_id, reply)
+        elif is_analysis_control_text(text):
+            return
         else:
             # 被动消息观察
             await container.conversation_usecase.observe_passive_group_message(

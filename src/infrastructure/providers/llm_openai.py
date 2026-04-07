@@ -6,15 +6,17 @@ from textwrap import dedent
 import httpx
 from tenacity import retry, stop_after_attempt, wait_fixed
 
+from src.domain.value_objects.conversation import DialogueAnalysisResult, SpeakerFeedback
 from src.domain.value_objects.learning import CorrectionResult, ErrorPointPayload
 
 
 class OpenAICompatibleProvider:
-    def __init__(self, *, api_key: str, base_url: str, model: str, timeout: float = 60.0) -> None:
+    def __init__(self, *, api_key: str, base_url: str, model: str, timeout: float = 30.0) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._timeout = timeout
+        self._client: httpx.AsyncClient | None = None
 
     @retry(wait=wait_fixed(1), stop=stop_after_attempt(2), reraise=True)
     async def correct_english(self, text: str, context: str | None = None) -> CorrectionResult:
@@ -56,6 +58,7 @@ class OpenAICompatibleProvider:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.2,
+            max_tokens=500,
         )
         return CorrectionResult(
             original_text=text,
@@ -97,6 +100,7 @@ class OpenAICompatibleProvider:
         return await self._chat_text(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
+            max_tokens=220,
         )
 
     async def generate_feedback(self, prompt: str) -> str:
@@ -105,33 +109,104 @@ class OpenAICompatibleProvider:
         return await self._chat_text(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
+            max_tokens=180,
         )
 
-    async def _chat_json(self, *, messages: list[dict], temperature: float) -> dict:
-        content = await self._chat_text(messages=messages, temperature=temperature)
+    async def analyze_dialogue(self, text: str, *, source_kind: str) -> DialogueAnalysisResult:
+        if not self._api_key or not self._base_url or not self._model:
+            return DialogueAnalysisResult(
+                translated_dialogue=f"[mock-en]\n{text}",
+                speaker_feedbacks=[],
+                source_kind=source_kind,
+            )
+
+        system_prompt = dedent(
+            """
+            你是英语学习助教。请严格返回 JSON，结构如下：
+            {
+              "translated_dialogue": "...",
+              "speaker_feedbacks": [
+                {
+                  "speaker": "...",
+                  "overall_comment": "...",
+                  "issues": ["...", "..."]
+                }
+              ]
+            }
+
+            要求：
+            1. 保留原始对话顺序和说话人标识。
+            2. 如果原文已经是英文，只做轻微润色，不要改写语义。
+            3. 只指出语言表达、语法、用词、自然度问题。
+            4. 如果某个说话人没有明显问题，可以省略。
+            """
+        ).strip()
+        user_prompt = dedent(
+            f"""
+            来源：{source_kind}
+            请分析下面的对话内容：
+            {text}
+            """
+        ).strip()
+        data = await self._chat_json(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+            max_tokens=1200,
+        )
+        return DialogueAnalysisResult(
+            translated_dialogue=str(data.get("translated_dialogue", "")).strip(),
+            speaker_feedbacks=[
+                SpeakerFeedback(
+                    speaker=str(item.get("speaker", "")).strip() or "未命名说话人",
+                    overall_comment=str(item.get("overall_comment", "")).strip(),
+                    issues=[
+                        str(issue).strip()
+                        for issue in item.get("issues", [])
+                        if str(issue).strip()
+                    ],
+                )
+                for item in data.get("speaker_feedbacks", [])
+                if isinstance(item, dict)
+            ],
+            source_kind=source_kind,
+        )
+
+    async def _chat_json(self, *, messages: list[dict], temperature: float, max_tokens: int) -> dict:
+        content = await self._chat_text(messages=messages, temperature=temperature, max_tokens=max_tokens)
         return json.loads(self._extract_json(content))
 
-    async def _chat_text(self, *, messages: list[dict], temperature: float) -> str:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(
-                self._chat_completions_url(),
-                headers={
-                    "Authorization": f"Bearer {self._api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self._model,
-                    "messages": messages,
-                    "temperature": temperature,
-                },
-            )
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"].strip()
+    async def _chat_text(self, *, messages: list[dict], temperature: float, max_tokens: int) -> str:
+        response = await self._client_or_create().post(
+            self._chat_completions_url(),
+            json={
+                "model": self._model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
+        )
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
 
     def _chat_completions_url(self) -> str:
         if self._base_url.endswith("/chat/completions"):
             return self._base_url
         return f"{self._base_url}/chat/completions"
+
+    def _client_or_create(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self._timeout),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+        return self._client
 
     def _extract_json(self, content: str) -> str:
         content = content.strip()

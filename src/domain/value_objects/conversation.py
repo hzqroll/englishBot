@@ -14,3 +14,17 @@ class ConversationEvidencePayload:
 class ConversationObservationResult:
     language_guess: str
     evidence_payloads: list[ConversationEvidencePayload] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class SpeakerFeedback:
+    speaker: str
+    issues: list[str] = field(default_factory=list)
+    overall_comment: str = ""
+
+
+@dataclass(slots=True)
+class DialogueAnalysisResult:
+    translated_dialogue: str
+    speaker_feedbacks: list[SpeakerFeedback] = field(default_factory=list)
+    source_kind: str = "explicit_text"

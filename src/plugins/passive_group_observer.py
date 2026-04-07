@@ -6,6 +6,7 @@ from nonebot.params import EventPlainText
 from nonebot.rule import Rule
 
 from src.application.conversation_usecases import ConversationContext
+from src.application.message_intents import is_analysis_control_text
 from src.infrastructure.settings.container import get_or_init_container
 from src.plugins.command_catalog import is_fixed_command_text
 
@@ -21,11 +22,19 @@ passive_group_observer = on_message(rule=Rule(_matches_passive_observer), priori
 async def handle_passive_group_observer(bot: Bot, event: GroupMessageEvent, text: str = EventPlainText()) -> None:
     if str(event.user_id) == str(bot.self_id):
         return
+    if event.is_tome():
+        return
+    bot_id = str(getattr(bot, "self_id", ""))
+    for segment in event.message:
+        if segment.type == "at" and str(segment.data.get("qq", "")) == bot_id:
+            return
 
     cleaned = text.strip()
     if not cleaned:
         return
     if is_fixed_command_text(cleaned):
+        return
+    if is_analysis_control_text(cleaned):
         return
 
     container = await get_or_init_container()
