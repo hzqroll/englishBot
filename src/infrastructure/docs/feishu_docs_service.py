@@ -108,14 +108,15 @@ def _card_document_to_blocks(doc: CardDocument, card_type: str, target_date: dat
     blocks: list[dict] = []
 
     label = _CARD_TYPE_LABELS.get(card_type, card_type)
-    blocks.append(_heading_block(f"{target_date.isoformat()} {label}", level=2))
+    blocks.append(_text_block(f"== {target_date.isoformat()} {label} ==", bold=True))
+    blocks.append(_divider_block())
 
     if doc.subtitle:
         blocks.append(_text_block(doc.subtitle, bold=True))
 
     for section in doc.sections:
         if section.title:
-            blocks.append(_heading_block(section.title, level=3))
+            blocks.append(_text_block(f"[ {section.title} ]", bold=True))
         for line in section.lines:
             blocks.append(_text_block(line))
 
@@ -126,19 +127,6 @@ def _card_document_to_blocks(doc: CardDocument, card_type: str, target_date: dat
 
     blocks.append(_divider_block())
     return blocks
-
-
-def _heading_block(text: str, level: int = 2) -> dict:
-    """block_type: heading1=4, heading2=5, heading3=6"""
-    key = f"heading{level}"
-    return {
-        "block_type": 3 + level,  # heading1=4, heading2=5, ...
-        key: {
-            "elements": [
-                {"text_run": {"content": text, "text_element_style": {}}}
-            ]
-        },
-    }
 
 
 def _text_block(content: str, bold: bool = False) -> dict:

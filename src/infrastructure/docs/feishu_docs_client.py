@@ -109,7 +109,6 @@ class FeishuDocsClient:
             },
             json=body,
         )
-        resp.raise_for_status()
         data = resp.json()
         if data.get("code") != 0:
             raise FeishuDocsError(f"append_blocks failed: code={data.get('code')} msg={data.get('msg')}")
