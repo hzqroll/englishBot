@@ -5,7 +5,7 @@
   <div>
     <p class="eyebrow">Learning Groups</p>
     <h2>学习群管理</h2>
-    <p class="hero-copy">在这里维护启用群、管理员群与群显示名称。保存后会立即刷新运行时启用列表，不需要手改配置文件。</p>
+    <p class="hero-copy">在这里维护 QQ 群、飞书群、管理员群与群显示名称。保存后会立即刷新运行时启用列表，不需要手改配置文件。</p>
   </div>
   <div class="hero-chip">
     <span class="hero-chip-label">当前登记群数</span>
@@ -27,8 +27,8 @@
       <p class="muted">新增后可立即参与消息接入和定时推送调度。</p>
     </div>
     <form method="post" action="/admin/groups" class="form-stack">
-      <label class="field-label">群号</label>
-      <input type="text" name="qq_group_id" placeholder="例如 204257012" required />
+      <label class="field-label">群 ID</label>
+      <input type="text" name="qq_group_id" placeholder="例如 204257012 或 oc_xxx" required />
       <label class="field-label">群显示名称</label>
       <input type="text" name="name" placeholder="例如 No Rain No Rainbow" />
       <label class="checkbox-line">
@@ -37,8 +37,14 @@
       </label>
       <label class="checkbox-line">
         <input type="checkbox" name="is_admin" />
-        同时设为管理员群
+        同时设为管理员群（仅 QQ）
       </label>
+      <label class="field-label">消息模式</label>
+      <select name="render_mode">
+        <option value="">跟随全局配置</option>
+        <option value="text">文字</option>
+        <option value="image_card">图片卡片</option>
+      </select>
       <button type="submit">保存学习群</button>
     </form>
   </section>
@@ -57,7 +63,7 @@
         <input type="hidden" name="group_id" value="{{ group.id }}" />
         <div class="group-card-head">
           <div>
-            <p class="group-card-kicker">QQ群</p>
+          <p class="group-card-kicker">{{ "飞书群" if group.platform == "feishu" else "QQ群" }}</p>
             <h4>{{ group.qq_group_id }}</h4>
           </div>
           <div class="group-badges">
@@ -70,7 +76,7 @@
 
         <div class="form-grid-2">
           <div>
-            <label class="field-label">群号</label>
+            <label class="field-label">群 ID</label>
             <input type="text" name="qq_group_id" value="{{ group.qq_group_id }}" required />
           </div>
           <div>
@@ -86,8 +92,17 @@
           </label>
           <label class="checkbox-line">
             <input type="checkbox" name="is_admin" {% if group.is_admin %}checked{% endif %} />
-            管理员群
+            管理员群（仅 QQ）
           </label>
+        </div>
+
+        <div>
+          <label class="field-label">消息模式</label>
+          <select name="render_mode">
+            <option value="">跟随全局配置</option>
+            <option value="text" {% if group.render_mode == "text" %}selected{% endif %}>文字</option>
+            <option value="image_card" {% if group.render_mode == "image_card" %}selected{% endif %}>图片卡片</option>
+          </select>
         </div>
 
         <div class="group-card-foot">

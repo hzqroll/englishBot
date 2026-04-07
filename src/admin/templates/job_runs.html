@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="page-hero">
+  <div>
+    <p class="eyebrow">Job History</p>
+    <h2>任务执行记录</h2>
+    <p class="hero-copy">查看学习包、晚间总结、周报和周测的执行历史，快速定位哪个业务日运行成功、失败或重复跳过。</p>
+  </div>
+  <div class="hero-chip">
+    <span class="hero-chip-label">最近记录数</span>
+    <strong>{{ jobs | length }}</strong>
+  </div>
+</header>
+
+<section class="panel stack-lg">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Recent Runs</p>
+      <h3>最近作业流水</h3>
+    </div>
+    <p class="muted">状态来自 `job_runs`，可用来判断手动触发和定时任务是否按预期执行。</p>
+  </div>
+  <div class="table-shell">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>任务名</th>
+          <th>业务键</th>
+          <th>状态</th>
+          <th>开始时间</th>
+          <th>结束时间</th>
+          <th>耗时</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td><strong>#{{ job.id }}</strong></td>
+          <td>{{ job.job_name }}</td>
+          <td><code>{{ job.biz_key }}</code></td>
+          <td>
+            <span class="status-pill {% if job.status == 'success' %}status-success{% elif job.status == 'failed' %}status-failed{% elif job.status == 'running' %}status-running{% endif %}">
+              {{ job.status }}
+            </span>
+          </td>
+          <td>{{ job.started_at or "-" }}</td>
+          <td>{{ job.finished_at or "-" }}</td>
+          <td>{{ job.duration_seconds if job.duration_seconds is not none else "-" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

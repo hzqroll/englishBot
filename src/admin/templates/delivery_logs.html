@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="page-hero">
+  <div>
+    <p class="eyebrow">Delivery Audit</p>
+    <h2>发送日志</h2>
+    <p class="hero-copy">查看卡片或文本消息是否真正投递成功，便于排查群消息未到达、发送模式降级和快照缺失等问题。</p>
+  </div>
+  <div class="hero-chip">
+    <span class="hero-chip-label">最近日志数</span>
+    <strong>{{ logs | length }}</strong>
+  </div>
+</header>
+
+<section class="panel stack-lg">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Recent Deliveries</p>
+      <h3>最近消息投递</h3>
+    </div>
+    <p class="muted">日志来自 `message_delivery_logs`，关联群、用户、任务名、卡片类型与投递结果。</p>
+  </div>
+  <div class="table-shell">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>任务</th>
+          <th>群 / 用户</th>
+          <th>卡片</th>
+          <th>投递模式</th>
+          <th>状态</th>
+          <th>结果</th>
+          <th>时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+        <tr>
+          <td><strong>#{{ log.id }}</strong></td>
+          <td>{{ log.job_name }}</td>
+          <td>
+            <div class="table-cell-stack">
+              <strong>{{ log.group_name or "未命名群" }}</strong>
+              <span class="muted">{{ log.group_id }}</span>
+              {% if log.user_id %}
+              <span>{{ log.nickname or "未命名用户" }}（{{ log.user_id }}）</span>
+              {% else %}
+              <span class="muted">群级投递</span>
+              {% endif %}
+            </div>
+          </td>
+          <td>
+            <div class="table-cell-stack">
+              <strong>{{ log.card_type or "-" }}</strong>
+              <span class="muted">快照 {{ log.card_snapshot_id or "-" }}</span>
+              <span class="muted">图片 {{ log.image_count }}</span>
+            </div>
+          </td>
+          <td><code>{{ log.delivery_mode }}</code></td>
+          <td>
+            <span class="status-pill {% if log.success %}status-success{% else %}status-failed{% endif %}">
+              {{ "success" if log.success else "failed" }}
+            </span>
+          </td>
+          <td><span class="muted">{{ log.provider_response or "-" }}</span></td>
+          <td>{{ log.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -38,6 +38,7 @@
         <h4>触发今日学习包</h4>
         <p>重新生成并推送当天的主题内容、词块和任务。</p>
       </div>
+      <label class="checkbox-row"><input type="checkbox" name="force_rerun" /> 强制重跑</label>
       <button type="submit">立即触发</button>
     </form>
     <form method="post" action="/admin/triggers/daily_error_digest" class="action-card">
@@ -48,6 +49,7 @@
       </div>
       <label class="field-label">业务日期</label>
       <input type="date" name="target_date" />
+      <label class="checkbox-row"><input type="checkbox" name="force_rerun" /> 强制重跑</label>
       <button type="submit">发送整理卡</button>
     </form>
     <form method="post" action="/admin/triggers/daily_progress" class="action-card">
@@ -58,6 +60,7 @@
       </div>
       <label class="field-label">业务日期</label>
       <input type="date" name="target_date" />
+      <label class="checkbox-row"><input type="checkbox" name="force_rerun" /> 强制重跑</label>
       <button type="submit">发送进度卡</button>
     </form>
     <form method="post" action="/admin/triggers/weekly_report" class="action-card">
@@ -66,6 +69,9 @@
         <h4>触发周报</h4>
         <p>按当前周次生成个人周报，检查复盘文案和高频错误汇总。</p>
       </div>
+      <label class="field-label">参考日期</label>
+      <input type="date" name="target_date" />
+      <label class="checkbox-row"><input type="checkbox" name="force_rerun" /> 强制重跑</label>
       <button type="submit">生成周报</button>
     </form>
     <form method="post" action="/admin/triggers/weekly_quiz" class="action-card">
@@ -74,6 +80,9 @@
         <h4>触发周测</h4>
         <p>按当前周次生成测试卡片和题目快照，验证投递链路。</p>
       </div>
+      <label class="field-label">参考日期</label>
+      <input type="date" name="target_date" />
+      <label class="checkbox-row"><input type="checkbox" name="force_rerun" /> 强制重跑</label>
       <button type="submit">生成周测</button>
     </form>
   </div>

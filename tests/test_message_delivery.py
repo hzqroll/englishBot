@@ -16,6 +16,9 @@ class _RuntimeConfigStub:
     def render_mode(self) -> str:
         return self._render_mode
 
+    def render_mode_for_group(self, group_id: str | None = None) -> str:
+        return self._render_mode
+
     def enable_task_cards(self) -> bool:
         return True
 

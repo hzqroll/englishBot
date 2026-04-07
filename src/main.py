@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 import nonebot
@@ -48,12 +49,26 @@ load_plugin("src.plugins.commands")
 load_plugin("src.plugins.passive_group_observer")
 
 
-@app.on_event("startup")
-async def on_startup() -> None:
+driver = get_driver()
+
+
+@driver.on_startup
+async def _on_startup() -> None:
     from src.plugins.scheduler import register_jobs
 
-    await ensure_container(settings)
+    container = await ensure_container(settings)
     register_jobs()
+    logging.getLogger(__name__).info("container initialized, feishu_app_id=%s", settings.runtime.feishu_app_id)
+
+    if settings.runtime.feishu_app_id:
+        from src.infrastructure.channels.feishu_bot import FeishuBot
+
+        feishu_bot = FeishuBot(
+            app_id=settings.runtime.feishu_app_id,
+            app_secret=settings.runtime.feishu_app_secret,
+            enabled_chat_ids=settings.static.feishu.enabled_group_ids or None,
+        )
+        feishu_bot.start()
 
 
 def run() -> None:

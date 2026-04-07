@@ -191,7 +191,16 @@ async def test_learning_repository_builds_real_weekly_stats(tmp_path):
         user_id=user.id,
         group_id=group.id,
         lesson_id=lesson_detail[0].id,
-        summary_json={"hello": "world"},
+        summary_json={
+            "stats": {
+                "translation_count": 1,
+                "correction_count": 1,
+                "today_task_total": 2,
+                "today_task_completed": 1,
+                "points_earned": 16,
+                "level": "beginner",
+            }
+        },
         mastery_level="started_using",
         mastery_reason="今天已经开始尝试使用英语表达。",
         model_summary="继续保持，明天继续复用核心词块。",
@@ -259,5 +268,26 @@ async def test_learning_repository_builds_real_weekly_stats(tmp_path):
     assert stored_card_snapshot is not None
     assert stored_card_snapshot.image_paths_json == ["/tmp/demo-card.png"]
     assert delivery_log.delivery_mode == "image_single"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_learning_repository_force_rerun_job_lock(tmp_path):
+    db_path = tmp_path / "job-lock-test.db"
+    engine = create_engine(f"sqlite+aiosqlite:///{db_path}")
+    session_factory = create_session_factory(engine)
+    await init_db(engine)
+
+    learning_repo = LearningRepository(session_factory)
+
+    assert await learning_repo.acquire_job_lock(job_name="weekly_report", biz_key="2026-W15") is True
+    await learning_repo.finish_job_lock(job_name="weekly_report", biz_key="2026-W15", status="success")
+    assert await learning_repo.acquire_job_lock(job_name="weekly_report", biz_key="2026-W15") is False
+    assert await learning_repo.acquire_job_lock(
+        job_name="weekly_report",
+        biz_key="2026-W15",
+        force=True,
+    ) is True
 
     await engine.dispose()

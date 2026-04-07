@@ -15,6 +15,9 @@ from src.domain.services.error_points import ErrorAggregator
 from src.domain.services.leveling import LevelService
 from src.domain.services.review import ReviewScheduler
 from src.infrastructure.cache.context_store import ContextStore
+from src.infrastructure.channels.base import ChannelAdapter
+from src.infrastructure.channels.feishu import FeishuChannel
+from src.infrastructure.channels.onebot import OneBotChannel
 from src.infrastructure.db.repositories.admin import AdminRepository
 from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
@@ -50,6 +53,7 @@ class ServiceContainer:
     quiz_usecase: QuizUseCase
     report_usecase: ReportUseCase
     admin_usecase: AdminUseCase
+    channels: dict[str, ChannelAdapter]
 
 
 _container: ServiceContainer | None = None
@@ -79,7 +83,7 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         lexicon_path=settings.project_root / "resources" / "lexicon" / "bec_advanced.yaml",
         theme_path=settings.project_root / "resources" / "themes" / "office_scenarios.yaml",
     )
-    runtime_config = RuntimeConfigService(settings=settings, learning_repo=learning_repo)
+    runtime_config = RuntimeConfigService(settings=settings, learning_repo=learning_repo, admin_repo=admin_repo)
     await runtime_config.refresh()
     context_store = ContextStore(ttl_minutes=settings.static.bot.context_ttl_minutes)
     conversation_analysis_service = ConversationAnalysisService()
@@ -158,7 +162,23 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         quiz_usecase=quiz_usecase,
         report_usecase=report_usecase,
         admin_usecase=admin_usecase,
+        channels={
+            "onebot": OneBotChannel(
+                runtime_config=runtime_config,
+                plain_text_renderer=plain_text_renderer,
+                image_card_renderer=image_card_renderer,
+            ),
+        },
     )
+
+    # 注册飞书渠道（仅当配置了 app_id 时）
+    if settings.runtime.feishu_app_id:
+        feishu_channel = FeishuChannel(
+            app_id=settings.runtime.feishu_app_id,
+            app_secret=settings.runtime.feishu_app_secret,
+        )
+        container.channels["feishu"] = feishu_channel
+
     set_container(container)
     return container
 

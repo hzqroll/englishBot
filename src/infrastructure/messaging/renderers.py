@@ -279,9 +279,10 @@ class MessageDeliveryService:
         self._plain_text_renderer = plain_text_renderer
         self._image_card_renderer = image_card_renderer
 
-    def can_send_card(self, envelope: MessageEnvelope) -> bool:
+    def can_send_card(self, envelope: MessageEnvelope, *, group_id: str | None = None) -> bool:
+        render_mode = self._runtime_config.render_mode_for_group(group_id) if group_id else self._runtime_config.render_mode()
         return (
-            self._runtime_config.render_mode() != "text"
+            render_mode != "text"
             and self._runtime_config.enable_task_cards()
             and envelope.card_document is not None
         )
@@ -294,7 +295,7 @@ class MessageDeliveryService:
         envelope: MessageEnvelope,
         mention_qq: str | None = None,
     ) -> DeliveryResult:
-        if self.can_send_card(envelope):
+        if self.can_send_card(envelope, group_id=group_id):
             try:
                 pages = self._image_card_renderer.render_document(envelope.card_document)
                 if len(pages) == 1:

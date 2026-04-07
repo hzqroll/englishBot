@@ -4,7 +4,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.infrastructure.auth.security import hash_password
-from src.infrastructure.db.models import AdminUser, DailyCardSnapshot, Group, JobRun, MessageDeliveryLog, User
+from src.infrastructure.db.models import AdminUser, DailyCardSnapshot, Group, GroupConfig, JobRun, MessageDeliveryLog, User
 
 
 class AdminRepository:
@@ -155,3 +155,31 @@ class AdminRepository:
             await session.commit()
             await session.refresh(group)
             return group
+
+    async def list_all_group_configs(self) -> list[GroupConfig]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(select(GroupConfig))
+            return list(rows)
+
+    async def upsert_group_config(self, *, group_id: int, key: str, value: str) -> GroupConfig:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(GroupConfig).where(GroupConfig.group_id == group_id, GroupConfig.key == key)
+            )
+            if row is None:
+                row = GroupConfig(group_id=group_id, key=key, value=value)
+                session.add(row)
+            else:
+                row.value = value
+            await session.commit()
+            await session.refresh(row)
+            return row
+
+    async def delete_group_config(self, *, group_id: int, key: str) -> None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(GroupConfig).where(GroupConfig.group_id == group_id, GroupConfig.key == key)
+            )
+            if row is not None:
+                await session.delete(row)
+                await session.commit()

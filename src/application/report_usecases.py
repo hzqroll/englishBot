@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from src.domain.services.leveling import LearningEvidence, LevelService
 from src.domain.services.error_taxonomy import label_error_type
@@ -25,12 +25,20 @@ class ReportUseCase:
         self._summary_provider = summary_provider
         self._level_service = level_service
 
-    async def build_weekly_report(self, *, qq_group_id: str, qq_user_id: str, nickname: str) -> str:
+    async def build_weekly_report(
+        self,
+        *,
+        qq_group_id: str,
+        qq_user_id: str,
+        nickname: str,
+        target_date: date | None = None,
+    ) -> str:
         return (
             await self.build_weekly_report_envelope(
                 qq_group_id=qq_group_id,
                 qq_user_id=qq_user_id,
                 nickname=nickname,
+                target_date=target_date,
             )
         ).plain_text
 
@@ -40,16 +48,20 @@ class ReportUseCase:
         qq_group_id: str,
         qq_user_id: str,
         nickname: str,
+        target_date: date | None = None,
     ) -> MessageEnvelope:
         group = await self._identity_repo.ensure_group(qq_group_id)
         user = await self._identity_repo.ensure_user(qq_user_id, nickname)
         if not await self._identity_repo.is_enrolled(user.id, group.id):
             return MessageEnvelope(plain_text="你还没有报名学习。")
 
-        week_key = datetime.now(UTC).strftime("%G-W%V")
+        target_date = target_date or datetime.now().astimezone().date()
+        week_key = target_date.strftime("%G-W%V")
+        week_anchor = target_date - timedelta(days=target_date.weekday())
         stats = await self._learning_repo.get_weekly_report_stats(
             user_id=user.id,
             group_id=group.id,
+            end_date=target_date,
         )
         evidence = LearningEvidence(
             translation_count=stats["translation_count"],
@@ -149,9 +161,19 @@ class ReportUseCase:
             sections=sections,
             footer_lines=["继续保持，明天可以发送 今日任务 或 复习一下。"],
         )
+        card_snapshot = await self._learning_repo.upsert_daily_card_snapshot(
+            biz_date=week_anchor,
+            user_id=user.id,
+            group_id=group.id,
+            card_type="weekly_report",
+            plain_text=plain_text,
+            card_document_json=self._document_to_json(document),
+        )
         return MessageEnvelope(
             plain_text=plain_text,
             card_document=document,
+            card_type="weekly_report",
+            card_snapshot_id=card_snapshot.id,
         )
 
     async def build_daily_error_digest_envelope(

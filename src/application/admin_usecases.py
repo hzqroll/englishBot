@@ -39,6 +39,12 @@ class AdminUseCase:
     async def list_users(self):
         return await self._admin_repo.list_users()
 
+    async def list_job_runs(self, *, limit: int = 100) -> list[dict]:
+        return await self._admin_repo.list_job_runs(limit=limit)
+
+    async def list_delivery_logs(self, *, limit: int = 100) -> list[dict]:
+        return await self._admin_repo.list_delivery_logs(limit=limit)
+
     async def list_settings(self):
         return await self._learning_repo.list_runtime_settings()
 
@@ -53,13 +59,19 @@ class AdminUseCase:
         await self._seed_groups_from_config()
         groups = await self._admin_repo.list_groups()
         admin_group_ids = set(self._runtime_config.admin_group_ids())
+        group_configs = await self._admin_repo.list_all_group_configs()
+        config_map: dict[int, dict[str, str]] = {}
+        for gc in group_configs:
+            config_map.setdefault(gc.group_id, {})[gc.key] = gc.value
         return [
             {
                 "id": group.id,
                 "qq_group_id": group.qq_group_id,
                 "name": group.name,
                 "enabled": group.enabled,
-                "is_admin": group.qq_group_id in admin_group_ids,
+                "is_admin": group.qq_group_id in admin_group_ids if _is_onebot_group_id(group.qq_group_id) else False,
+                "platform": "feishu" if _is_feishu_group_id(group.qq_group_id) else "onebot",
+                "render_mode": config_map.get(group.id, {}).get("message.render_mode", ""),
                 "updated_at": group.updated_at,
             }
             for group in groups
@@ -73,10 +85,11 @@ class AdminUseCase:
         name: str,
         enabled: bool,
         is_admin: bool,
+        render_mode: str = "",
     ) -> None:
         qq_group_id = qq_group_id.strip()
-        if not qq_group_id.isdigit():
-            raise ValueError("群号必须是纯数字。")
+        if not _is_supported_group_id(qq_group_id):
+            raise ValueError("群号必须是纯数字，或使用 oc_ 开头的飞书群 ID。")
 
         existing_groups = await self._admin_repo.list_groups()
         old_group_id = None
@@ -93,15 +106,18 @@ class AdminUseCase:
             enabled=enabled,
         )
         all_groups = await self._admin_repo.list_groups()
-        enabled_group_ids = [group.qq_group_id for group in all_groups if group.enabled]
+        enabled_group_ids = [group.qq_group_id for group in all_groups if group.enabled and _is_onebot_group_id(group.qq_group_id)]
+        feishu_enabled_group_ids = [
+            group.qq_group_id for group in all_groups if group.enabled and _is_feishu_group_id(group.qq_group_id)
+        ]
 
         admin_group_ids = set(self._runtime_config.admin_group_ids())
         if old_group_id:
             admin_group_ids.discard(old_group_id)
         admin_group_ids.discard(saved_group.qq_group_id)
-        if is_admin:
+        if is_admin and _is_onebot_group_id(saved_group.qq_group_id):
             admin_group_ids.add(saved_group.qq_group_id)
-        known_group_ids = {group.qq_group_id for group in all_groups}
+        known_group_ids = {group.qq_group_id for group in all_groups if _is_onebot_group_id(group.qq_group_id)}
         admin_group_ids &= known_group_ids
 
         await self._learning_repo.upsert_runtime_setting(
@@ -109,18 +125,46 @@ class AdminUseCase:
             value=self._dump_yaml(enabled_group_ids),
         )
         await self._learning_repo.upsert_runtime_setting(
+            key="feishu.enabled_group_ids",
+            value=self._dump_yaml(feishu_enabled_group_ids),
+        )
+        await self._learning_repo.upsert_runtime_setting(
             key="bot.admin_group_ids",
             value=self._dump_yaml(sorted(admin_group_ids)),
         )
+
+        if render_mode:
+            await self._admin_repo.upsert_group_config(
+                group_id=saved_group.id, key="message.render_mode", value=render_mode,
+            )
+        else:
+            await self._admin_repo.delete_group_config(
+                group_id=saved_group.id, key="message.render_mode",
+            )
+
         await self._runtime_config.refresh()
 
     async def _seed_groups_from_config(self) -> None:
         seed_ids = set(self._settings.static.bot.enabled_group_ids) | set(self._runtime_config.enabled_group_ids())
         seed_ids |= set(self._settings.static.bot.admin_group_ids) | set(self._runtime_config.admin_group_ids())
+        seed_ids |= set(self._settings.static.feishu.enabled_group_ids) | set(self._runtime_config.feishu_enabled_group_ids())
         for qq_group_id in sorted(seed_ids):
             if qq_group_id:
-                await self._admin_repo.ensure_group(qq_group_id=qq_group_id, enabled=qq_group_id in self._runtime_config.enabled_group_ids())
+                enabled = self._runtime_config.is_enabled_chat(qq_group_id)
+                await self._admin_repo.ensure_group(qq_group_id=qq_group_id, enabled=enabled)
 
     @staticmethod
     def _dump_yaml(value) -> str:
         return yaml.safe_dump(value, allow_unicode=True, sort_keys=False).strip()
+
+
+def _is_feishu_group_id(group_id: str) -> bool:
+    return group_id.startswith("oc_")
+
+
+def _is_onebot_group_id(group_id: str) -> bool:
+    return group_id.isdigit()
+
+
+def _is_supported_group_id(group_id: str) -> bool:
+    return _is_onebot_group_id(group_id) or _is_feishu_group_id(group_id)

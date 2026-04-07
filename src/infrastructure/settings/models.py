@@ -34,6 +34,9 @@ class AppRuntimeSettings(BaseSettings):
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
 
+    feishu_app_id: str = ""
+    feishu_app_secret: str = ""
+
 
 class BotSettings(BaseModel):
     enabled_group_ids: list[str] = Field(default_factory=list)
@@ -83,6 +86,10 @@ class MessageSettings(BaseModel):
     card_fallback_to_text: bool = True
 
 
+class FeishuSettings(BaseModel):
+    enabled_group_ids: list[str] = Field(default_factory=list)
+
+
 class StaticConfig(BaseModel):
     bot: BotSettings = Field(default_factory=BotSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
@@ -90,6 +97,7 @@ class StaticConfig(BaseModel):
     learning: LearningSettings = Field(default_factory=LearningSettings)
     admin: AdminUiSettings = Field(default_factory=AdminUiSettings)
     message: MessageSettings = Field(default_factory=MessageSettings)
+    feishu: FeishuSettings = Field(default_factory=FeishuSettings)
 
 
 @dataclass(slots=True)

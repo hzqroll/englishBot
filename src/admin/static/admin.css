@@ -432,15 +432,33 @@ a {
   color: var(--teal);
 }
 
+.status-running {
+  background: rgba(17, 40, 74, 0.12);
+  color: var(--navy);
+}
+
 .status-failed {
   background: rgba(216, 110, 69, 0.16);
   color: #9f3f1c;
+}
+
+.table-cell-stack {
+  display: grid;
+  gap: 4px;
 }
 
 .form-stack,
 .setting-form {
   display: grid;
   gap: 12px;
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 14px;
 }
 
 .split-layout {

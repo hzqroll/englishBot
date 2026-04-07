@@ -1,16 +1,32 @@
 from __future__ import annotations
 
 from nonebot import on_message
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
+from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent
 from nonebot.params import EventPlainText
-from nonebot.rule import to_me
+from nonebot.rule import Rule
 
 from src.application.message_usecases import MessageCommandContext
 from src.infrastructure.settings.container import get_or_init_container
 from src.plugins.command_catalog import is_fixed_command_text, render_help_text
 
 
-at_message = on_message(rule=to_me(), priority=10, block=True)
+def _matches_at_message(bot: Bot, event: Event) -> bool:
+    if not isinstance(event, GroupMessageEvent):
+        return False
+    if event.is_tome():
+        return True
+
+    bot_id = str(getattr(bot, "self_id", ""))
+    for segment in event.message:
+        if segment.type != "at":
+            continue
+        target = str(segment.data.get("qq", ""))
+        if target and target == bot_id:
+            return True
+    return False
+
+
+at_message = on_message(rule=Rule(_matches_at_message), priority=10, block=True)
 
 
 @at_message.handle()

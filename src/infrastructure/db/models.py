@@ -25,6 +25,7 @@ class Group(Base, TimestampMixin):
     qq_group_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(128), default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    platform: Mapped[str] = mapped_column(String(32), default="onebot")
 
 
 class Enrollment(Base, TimestampMixin):
@@ -363,6 +364,16 @@ class RuntimeSetting(Base):
     key: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     value: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class GroupConfig(Base, TimestampMixin):
+    __tablename__ = "group_configs"
+    __table_args__ = (UniqueConstraint("group_id", "key", name="uq_group_configs_group_key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    key: Mapped[str] = mapped_column(String(128))
+    value: Mapped[str] = mapped_column(Text)
 
 
 class AdminUser(Base, TimestampMixin):

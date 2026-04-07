@@ -136,6 +136,7 @@ async def groups_submit(
     name: str = Form(""),
     enabled: str | None = Form(None),
     is_admin: str | None = Form(None),
+    render_mode: str = Form(""),
 ):
     if not _current_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
@@ -148,6 +149,7 @@ async def groups_submit(
             name=name,
             enabled=bool(enabled),
             is_admin=bool(is_admin),
+            render_mode=render_mode,
         )
         return RedirectResponse("/admin/groups", status_code=303)
     except ValueError as exc:
@@ -182,6 +184,38 @@ async def settings_page(request: Request):
     )
 
 
+@router.get("/admin/job-runs", response_class=HTMLResponse)
+async def job_runs_page(request: Request):
+    if not _current_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    container = await _container(request)
+    jobs = await container.admin_usecase.list_job_runs()
+    return templates.TemplateResponse(
+        request,
+        "job_runs.html",
+        {
+            "jobs": jobs,
+            "admin_username": _current_admin(request),
+        },
+    )
+
+
+@router.get("/admin/delivery-logs", response_class=HTMLResponse)
+async def delivery_logs_page(request: Request):
+    if not _current_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    container = await _container(request)
+    logs = await container.admin_usecase.list_delivery_logs()
+    return templates.TemplateResponse(
+        request,
+        "delivery_logs.html",
+        {
+            "logs": logs,
+            "admin_username": _current_admin(request),
+        },
+    )
+
+
 @router.post("/admin/settings", response_class=HTMLResponse)
 async def settings_submit(request: Request, key: str = Form(...), value: str = Form(...)):
     if not _current_admin(request):
@@ -195,7 +229,12 @@ async def settings_submit(request: Request, key: str = Form(...), value: str = F
 
 
 @router.post("/admin/triggers/{job_name}")
-async def trigger_job(request: Request, job_name: str, target_date: str | None = Form(None)):
+async def trigger_job(
+    request: Request,
+    job_name: str,
+    target_date: str | None = Form(None),
+    force_rerun: str | None = Form(None),
+):
     if not _current_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
     from src.plugins.scheduler import (
@@ -224,8 +263,11 @@ async def trigger_job(request: Request, job_name: str, target_date: str | None =
             parsed_target_date = date.fromisoformat(target_date)
         except ValueError:
             parsed_target_date = None
-    if job_name in {"daily_error_digest", "daily_progress"}:
-        await job(target_date=parsed_target_date)
+    force_run = bool(force_rerun)
+    if job_name in {"daily_error_digest", "daily_progress", "weekly_report", "weekly_quiz"}:
+        await job(target_date=parsed_target_date, force_run=force_run)
+    elif job_name == "daily_push":
+        await job(force_run=force_run)
     else:
         await job()
     return RedirectResponse("/admin", status_code=303)

@@ -31,6 +31,14 @@
             <span class="nav-kicker">Config</span>
             <strong>动态配置</strong>
           </a>
+          <a class="nav-link {% if request.url.path.startswith('/admin/job-runs') %}active{% endif %}" href="/admin/job-runs">
+            <span class="nav-kicker">Jobs</span>
+            <strong>任务执行</strong>
+          </a>
+          <a class="nav-link {% if request.url.path.startswith('/admin/delivery-logs') %}active{% endif %}" href="/admin/delivery-logs">
+            <span class="nav-kicker">Delivery</span>
+            <strong>发送日志</strong>
+          </a>
           <a class="nav-link {% if request.url.path.startswith('/admin/debug') %}active{% endif %}" href="/admin/debug">
             <span class="nav-kicker">Tools</span>
             <strong>联调调试</strong>

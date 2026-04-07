@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from dataclasses import asdict
+from datetime import UTC, date, datetime, timedelta
 
 from src.domain.services.review import ReviewScheduler
 from src.domain.value_objects.learning import QuizQuestionBundle
@@ -24,12 +25,20 @@ class QuizUseCase:
         self._runtime_config = runtime_config
         self._review_scheduler = review_scheduler
 
-    async def start_weekly_quiz(self, *, qq_group_id: str, qq_user_id: str, nickname: str) -> str:
+    async def start_weekly_quiz(
+        self,
+        *,
+        qq_group_id: str,
+        qq_user_id: str,
+        nickname: str,
+        target_date: date | None = None,
+    ) -> str:
         return (
             await self.start_weekly_quiz_envelope(
                 qq_group_id=qq_group_id,
                 qq_user_id=qq_user_id,
                 nickname=nickname,
+                target_date=target_date,
             )
         ).plain_text
 
@@ -39,13 +48,16 @@ class QuizUseCase:
         qq_group_id: str,
         qq_user_id: str,
         nickname: str,
+        target_date: date | None = None,
     ) -> MessageEnvelope:
         group = await self._identity_repo.ensure_group(qq_group_id)
         user = await self._identity_repo.ensure_user(qq_user_id, nickname)
         if not await self._identity_repo.is_enrolled(user.id, group.id):
             return MessageEnvelope(plain_text="请先发送“报名学习”后再开始周测。")
 
-        biz_week = datetime.now(UTC).strftime("%G-W%V")
+        target_date = target_date or datetime.now().astimezone().date()
+        biz_week = target_date.strftime("%G-W%V")
+        week_anchor = target_date - timedelta(days=target_date.weekday())
         session = await self._learning_repo.create_quiz_session(
             biz_week=biz_week,
             group_id=group.id,
@@ -102,9 +114,19 @@ class QuizUseCase:
             sections=sections,
             footer_lines=[f"答题后发送：答题 {session.id} 1:A 2:B ..."],
         )
+        card_snapshot = await self._learning_repo.upsert_daily_card_snapshot(
+            biz_date=week_anchor,
+            user_id=user.id,
+            group_id=group.id,
+            card_type="weekly_quiz",
+            plain_text=plain_text,
+            card_document_json=asdict(document),
+        )
         return MessageEnvelope(
             plain_text=plain_text,
             card_document=document,
+            card_type="weekly_quiz",
+            card_snapshot_id=card_snapshot.id,
         )
 
     async def submit_weekly_quiz(

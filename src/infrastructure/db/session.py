@@ -103,6 +103,12 @@ def _upgrade_sqlite_schema(connection: Any) -> None:
         "ON message_delivery_logs (group_id, user_id, job_name)"
     )
 
+    group_columns = _table_columns(connection, "groups")
+    if "platform" not in group_columns:
+        connection.exec_driver_sql(
+            "ALTER TABLE groups ADD COLUMN platform VARCHAR(32) NOT NULL DEFAULT 'onebot'"
+        )
+
 
 def _table_columns(connection: Any, table_name: str) -> set[str]:
     rows = connection.exec_driver_sql(f"PRAGMA table_info('{table_name}')").fetchall()

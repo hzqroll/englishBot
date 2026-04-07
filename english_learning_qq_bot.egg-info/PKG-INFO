@@ -11,6 +11,7 @@ Requires-Dist: feedparser>=6.0.11
 Requires-Dist: fastapi>=0.115.0
 Requires-Dist: httpx>=0.28.0
 Requires-Dist: itsdangerous>=2.2.0
+Requires-Dist: lark-oapi>=1.4.0
 Requires-Dist: jinja2>=3.1.4
 Requires-Dist: nonebot2[fastapi]>=2.4.1
 Requires-Dist: nonebot-adapter-onebot>=2.4.6
@@ -32,6 +33,12 @@ Requires-Dist: pytest-asyncio>=0.24.0; extra == "dev"
 # English Learning QQ Bot
 
 一个基于 `NoneBot2 + NapCat + SQLite + FastAPI` 的英语学习 QQ 机器人。
+
+## 方案文档
+
+- 产品设计：[docs/product-design.md](docs/product-design.md)
+- 第一版技术方案：[docs/technical-solution-v1.md](docs/technical-solution-v1.md)
+- 第一版开发计划与 Todo：[docs/development-plan-v1.md](docs/development-plan-v1.md)
 
 ## 当前能力
 
