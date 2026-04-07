@@ -87,8 +87,15 @@ class MessageSettings(BaseModel):
     group_dialogue_trigger_min_sentences: int = 10
 
 
+class FeishuDocsSettings(BaseModel):
+    enabled: bool = False
+    folder_name: str = "englishImprovePlan"
+    notify_chat_ids: list[str] = Field(default_factory=list)
+
+
 class FeishuSettings(BaseModel):
     enabled_group_ids: list[str] = Field(default_factory=list)
+    docs: FeishuDocsSettings = Field(default_factory=FeishuDocsSettings)
 
 
 class StaticConfig(BaseModel):

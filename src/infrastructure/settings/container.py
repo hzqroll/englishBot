@@ -19,6 +19,9 @@ from src.domain.services.review import ReviewScheduler
 from src.infrastructure.cache.context_store import ContextStore
 from src.infrastructure.cache.group_dialogue_store import GroupDialogueStore
 from src.infrastructure.channels.base import ChannelAdapter
+from src.infrastructure.docs.feishu_docs_client import FeishuDocsClient
+from src.infrastructure.docs.feishu_docs_service import FeishuDocsService
+from src.infrastructure.docs.repository import FeishuDocsRepository
 from src.infrastructure.channels.feishu import FeishuChannel
 from src.infrastructure.channels.onebot import OneBotChannel
 from src.infrastructure.db.repositories.admin import AdminRepository
@@ -60,6 +63,7 @@ class ServiceContainer:
     report_usecase: ReportUseCase
     admin_usecase: AdminUseCase
     channels: dict[str, ChannelAdapter]
+    feishu_docs_service: FeishuDocsService | None = None
 
 
 _container: ServiceContainer | None = None
@@ -204,6 +208,21 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
             app_secret=settings.runtime.feishu_app_secret,
         )
         container.channels["feishu"] = feishu_channel
+
+        # 注册飞书文档归档服务
+        if settings.static.feishu.docs.enabled:
+            docs_client = FeishuDocsClient(
+                app_id=settings.runtime.feishu_app_id,
+                app_secret=settings.runtime.feishu_app_secret,
+            )
+            docs_repo = FeishuDocsRepository(session_factory)
+            container.feishu_docs_service = FeishuDocsService(
+                docs_client=docs_client,
+                docs_repo=docs_repo,
+                feishu_channel=feishu_channel,
+                folder_name=settings.static.feishu.docs.folder_name,
+                notify_chat_ids=settings.static.feishu.docs.notify_chat_ids,
+            )
 
     set_container(container)
     return container

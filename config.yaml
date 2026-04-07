@@ -42,3 +42,8 @@ message:
 feishu:
     enabled_group_ids:
       - "oc_9c6c87dddd8a0cb8277301607c1f20ff"
+    docs:
+        enabled: true
+        folder_name: "englishImprovePlan"
+        notify_chat_ids:
+          - "oc_9c6c87dddd8a0cb8277301607c1f20ff"

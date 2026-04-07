@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import threading
+from concurrent.futures import Future
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
@@ -26,6 +27,7 @@ class FeishuBot:
         self._app_id = app_id
         self._app_secret = app_secret
         self._enabled_chat_ids = set(enabled_chat_ids) if enabled_chat_ids else None
+        self._main_loop: asyncio.AbstractEventLoop | None = None
         self._client = (
             lark.Client.builder()
             .app_id(app_id)
@@ -36,6 +38,7 @@ class FeishuBot:
 
     def start(self) -> None:
         """在后台守护线程中启动飞书 WebSocket 客户端。"""
+        self._main_loop = asyncio.get_running_loop()
         event_handler = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(self._on_message)
@@ -58,6 +61,9 @@ class FeishuBot:
             if msg.chat_type != "group":
                 return
             chat_id = msg.chat_id or ""
+            if self._enabled_chat_ids and chat_id not in self._enabled_chat_ids:
+                logger.info("feishu ignore message from disabled chat_id=%s", chat_id)
+                return
             if msg.message_type != "text":
                 return
 
@@ -94,27 +100,23 @@ class FeishuBot:
         is_mention: bool,
     ) -> None:
         """将协程提交到 NoneBot2 主事件循环中执行。"""
+        if self._main_loop is None or not self._main_loop.is_running():
+            logger.error("feishu main loop unavailable, drop message chat_id=%s", chat_id)
+            return
         try:
-            main_loop = asyncio.get_event_loop()
-            if main_loop.is_running():
-                asyncio.run_coroutine_threadsafe(
-                    self._dispatch(raw_event_id, chat_id, user_id, nickname, text, is_mention),
-                    main_loop,
-                )
-            else:
-                main_loop.run_until_complete(
-                    self._dispatch(raw_event_id, chat_id, user_id, nickname, text, is_mention)
-                )
-        except RuntimeError:
-            # fallback: 创建新事件循环
-            try:
-                loop = asyncio.new_event_loop()
-                loop.run_until_complete(self._dispatch(raw_event_id, chat_id, user_id, nickname, text, is_mention))
-                loop.close()
-            except Exception:
-                logger.exception("feishu async dispatch failed")
+            future: Future = asyncio.run_coroutine_threadsafe(
+                self._dispatch(raw_event_id, chat_id, user_id, nickname, text, is_mention),
+                self._main_loop,
+            )
+            future.add_done_callback(self._log_dispatch_failure)
         except Exception:
             logger.exception("feishu async dispatch failed")
+
+    def _log_dispatch_failure(self, future: Future) -> None:
+        try:
+            future.result()
+        except Exception:
+            logger.exception("feishu dispatch task failed")
 
     async def _dispatch(
         self,
@@ -130,10 +132,13 @@ class FeishuBot:
         if channel is None or not isinstance(channel, FeishuChannel):
             logger.error("feishu channel not registered")
             return
+        if self._enabled_chat_ids and chat_id not in self._enabled_chat_ids:
+            logger.info("feishu ignore dispatch from disabled chat_id=%s", chat_id)
+            return
         if not container.runtime_config.is_enabled_chat(chat_id):
             return
 
-        if is_fixed_command_text(text):
+        if is_fixed_command_text(text) or is_analysis_control_text(text):
             envelope = await handle_fixed_command_text(
                 group_id=chat_id,
                 group_name="",
@@ -157,8 +162,6 @@ class FeishuBot:
                 )
             )
             await channel.send_text(chat_id, reply)
-        elif is_analysis_control_text(text):
-            return
         else:
             # 被动消息观察
             await container.conversation_usecase.observe_passive_group_message(

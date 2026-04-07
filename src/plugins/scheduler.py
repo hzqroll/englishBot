@@ -428,3 +428,32 @@ async def _send_group_envelope(
             success=False,
             provider_response="send_failed",
         )
+
+    # 飞书群消息发送后，归档到飞书文档（非阻塞）
+    if is_feishu and container.feishu_docs_service is not None:
+        await _save_to_feishu_docs(
+            container=container,
+            envelope=envelope,
+            card_type=job_name,
+            target_date=date.today(),
+        )
+
+
+async def _save_to_feishu_docs(
+    *,
+    container,
+    envelope: MessageEnvelope,
+    card_type: str,
+    target_date: date,
+) -> None:
+    """非阻塞：将内容写入飞书文档，失败只记日志。"""
+    if envelope.card_document is None:
+        return
+    try:
+        await container.feishu_docs_service.append_content(
+            envelope=envelope,
+            card_type=card_type,
+            target_date=target_date,
+        )
+    except Exception:
+        logger.exception("feishu docs save failed for card_type=%s", card_type)
