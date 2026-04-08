@@ -485,27 +485,28 @@ async def daily_friends_job(force_run: bool = False) -> None:
         )
         segment = container.friends_usecase.provider.get_segment(target_date, start_date)
 
-        bots = list(get_bots().values())
         feishu_channel = container.channels.get("feishu")
         if feishu_channel:
-            for chat_id in container.runtime_config.feishu_enabled_group_ids():
-                await _send_group_envelope(
+            # Friends 内容只写入飞书文档，群内只推送文档链接
+            if container.feishu_docs_service is not None:
+                doc_url = await _save_friends_to_docs(
                     container=container,
-                    bots=bots,
-                    group_id=chat_id,
                     envelope=envelope,
-                    job_name="friends_dialogue",
+                    season=segment.season,
+                    episode=segment.episode,
+                    episode_title=segment.title,
+                    target_date=target_date,
                 )
-                # 写入独立的 per-episode 飞书文档
-                if container.feishu_docs_service is not None:
-                    await _save_friends_to_docs(
-                        container=container,
-                        envelope=envelope,
-                        season=segment.season,
-                        episode=segment.episode,
-                        episode_title=segment.title,
-                        target_date=target_date,
-                    )
+                if doc_url:
+                    doc_title = f"S{segment.season:02d}E{segment.episode:02d} - {segment.title}"
+                    for chat_id in container.runtime_config.feishu_enabled_group_ids():
+                        try:
+                            await feishu_channel.send_text(
+                                chat_id,
+                                f"Friends {doc_title} 今日学习内容已更新：{doc_url}",
+                            )
+                        except Exception:
+                            logger.exception("failed to send friends doc link to chat %s", chat_id)
         await container.learning_repo.finish_job_lock(job_name="daily_friends", biz_key=biz_date, status="success")
     except Exception:
         logger.exception("daily friends job failed")
@@ -520,10 +521,10 @@ async def _save_friends_to_docs(
     episode: int,
     episode_title: str,
     target_date: date,
-) -> None:
-    """将 Friends 内容写入按集飞书文档。"""
+) -> str | None:
+    """将 Friends 内容写入按集飞书文档，返回文档 URL。"""
     try:
-        await container.feishu_docs_service.append_friends_content(
+        return await container.feishu_docs_service.append_friends_content(
             envelope=envelope,
             season=season,
             episode=episode,
@@ -532,3 +533,4 @@ async def _save_friends_to_docs(
         )
     except Exception:
         logger.exception("feishu docs save failed for friends S%02dE%02d", season, episode)
+        return None

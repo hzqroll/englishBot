@@ -97,23 +97,27 @@ class FeishuDocsService:
         episode: int,
         episode_title: str,
         target_date: date,
-    ) -> None:
-        """将 Friends 对话内容追加到按集文档中。"""
+    ) -> str | None:
+        """将 Friends 对话内容追加到按集文档中，返回文档 URL。"""
         if envelope.card_document is None:
-            return
+            return None
 
         folder_token = await self._ensure_friends_folder()
         document_id = await self._ensure_episode_doc(folder_token, season, episode, episode_title)
+        doc_url = f"https://bytedance.larkoffice.com/docx/{document_id}"
+
         blocks = _card_document_to_blocks(envelope.card_document, "friends_dialogue", target_date)
+        if blocks:
+            try:
+                self._client.append_blocks(document_id=document_id, blocks=blocks)
+                logger.info(
+                    "feishu docs: appended %d blocks for friends S%02dE%02d",
+                    len(blocks), season, episode,
+                )
+            except Exception:
+                logger.exception("feishu docs: append_blocks failed for friends S%02dE%02d", season, episode)
 
-        if not blocks:
-            return
-
-        self._client.append_blocks(document_id=document_id, blocks=blocks)
-        logger.info(
-            "feishu docs: appended %d blocks for friends S%02dE%02d",
-            len(blocks), season, episode,
-        )
+        return doc_url
 
     async def _ensure_friends_folder(self) -> str:
         """确保 friends 根文件夹存在。"""
@@ -128,7 +132,7 @@ class FeishuDocsService:
     async def _ensure_episode_doc(
         self, folder_token: str, season: int, episode: int, title: str,
     ) -> str:
-        """确保单集文档存在，首次创建时通知群。"""
+        """确保单集文档存在。"""
         cache_key = f"feishu_docs.friends_doc.s{season:02d}e{episode:02d}"
         doc_id = await self._repo.get_value(cache_key)
         if doc_id:
@@ -138,13 +142,6 @@ class FeishuDocsService:
         doc_id = self._client.create_document(title=doc_title, folder_token=folder_token)
         await self._repo.save_value(cache_key, doc_id)
         logger.info("feishu docs: created episode doc %s (id=%s)", doc_title, doc_id)
-
-        doc_url = f"https://bytedance.larkoffice.com/docx/{doc_id}"
-        for chat_id in self._notify_chat_ids:
-            try:
-                await self._channel.send_text(chat_id, f"Friends {doc_title} 文档已创建：{doc_url}")
-            except Exception:
-                logger.exception("feishu docs: failed to notify chat %s", chat_id)
 
         return doc_id
 
