@@ -97,18 +97,21 @@ class FeishuDocsClient:
         return resp.data.document.document_id
 
     def append_blocks(self, *, document_id: str, blocks: list[dict]) -> None:
-        """向文档末尾追加内容块（使用原始 HTTP 避免 SDK 序列化问题）。"""
+        """向文档末尾追加内容块，自动分批（飞书单次上限 50 个 block）。"""
         token = self._ensure_token()
         url = f"{_BASE_URL}/docx/v1/documents/{document_id}/blocks/{document_id}/children"
-        body = {"children": blocks, "index": -1}
-        resp = self._get_http().post(
-            url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            json=body,
-        )
-        data = resp.json()
-        if data.get("code") != 0:
-            raise FeishuDocsError(f"append_blocks failed: code={data.get('code')} msg={data.get('msg')}")
+        batch_size = 50
+        for i in range(0, len(blocks), batch_size):
+            batch = blocks[i : i + batch_size]
+            body = {"children": batch, "index": -1}
+            resp = self._get_http().post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+            data = resp.json()
+            if data.get("code") != 0:
+                raise FeishuDocsError(f"append_blocks failed: code={data.get('code')} msg={data.get('msg')}")
