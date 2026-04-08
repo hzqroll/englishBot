@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
 import logging
 from datetime import date
-
-import httpx
 
 from src.domain.value_objects.messaging import CardDocument, CardSection, MessageEnvelope
 from src.infrastructure.providers.friends_transcript import FriendsTranscriptProvider
@@ -85,7 +82,7 @@ class FriendsUseCase:
         return self._provider
 
     async def _analyze_dialogue(self, dialogue_text: str) -> dict:
-        if not self._llm._api_key:
+        if not self._llm._api_key or not self._llm._base_url or not self._llm._model:
             return {}
 
         system_prompt = (
@@ -105,13 +102,14 @@ class FriendsUseCase:
         )
 
         try:
-            data = await self._call_llm_json(
+            data = await self._llm._chat_json(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": dialogue_text},
                 ],
                 temperature=0.3,
                 max_tokens=1500,
+                timeout=60.0,
             )
             return {
                 "translation": data.get("translation", ""),
@@ -122,34 +120,3 @@ class FriendsUseCase:
         except Exception:
             logger.exception("friends dialogue analysis failed")
             return {}
-
-    async def _call_llm_json(
-        self,
-        *,
-        messages: list[dict],
-        temperature: float,
-        max_tokens: int,
-    ) -> dict:
-        """直接调用 LLM API，使用 60s timeout（复用 provider 配置）。"""
-        url = self._llm._chat_completions_url()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-            resp = await client.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {self._llm._api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self._llm._model,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                },
-            )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"].strip()
-            # Strip markdown code blocks if present
-            if content.startswith("```"):
-                lines = [line for line in content.splitlines() if not line.startswith("```")]
-                content = "\n".join(lines)
-            return json.loads(content)

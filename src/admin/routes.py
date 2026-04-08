@@ -6,12 +6,14 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from src.application.learning_usecases import EnrollmentContext
 from src.application.message_intents import (
     extract_explicit_dialogue_analysis_text,
     is_recent_chat_analysis_request,
 )
 from src.application.message_usecases import MessageCommandContext
 from src.domain.value_objects.learning import LanguageType
+from src.domain.value_objects.messaging import MessageEnvelope
 from src.infrastructure.auth.security import verify_password
 from src.infrastructure.settings.container import ensure_container
 
@@ -409,3 +411,277 @@ async def debug_submit(
             "result": result,
         },
     )
+
+
+# ======================================================================
+# /api/test/* — 功能验证接口（无鉴权）
+# ======================================================================
+
+_TEST_DEFAULT_USER = "test_user"
+_TEST_DEFAULT_NICK = "Tester"
+
+
+def _serialize_envelope(envelope: MessageEnvelope | None) -> dict | None:
+    if envelope is None:
+        return None
+    result: dict = {"plain_text": envelope.plain_text}
+    if envelope.fallback_text:
+        result["fallback_text"] = envelope.fallback_text
+    if envelope.card_document is not None:
+        doc = envelope.card_document
+        result["card_document"] = {
+            "title": doc.title,
+            "subtitle": doc.subtitle,
+            "theme": doc.theme,
+            "sections": [
+                {"title": s.title, "lines": s.lines} for s in doc.sections
+            ],
+            "footer_lines": doc.footer_lines,
+        }
+    return result
+
+
+def _ok(data=None, *, reply: str | None = None) -> JSONResponse:
+    body: dict = {"success": True}
+    if data is not None:
+        if isinstance(data, MessageEnvelope):
+            body["data"] = _serialize_envelope(data)
+        elif isinstance(data, str):
+            body["data"] = {"text": data}
+        else:
+            body["data"] = data
+    if reply is not None:
+        body["reply"] = reply
+    return JSONResponse(body)
+
+
+def _err(message: str) -> JSONResponse:
+    return JSONResponse({"success": False, "error": message}, status_code=400)
+
+
+async def _test_params(request: Request) -> tuple:
+    """从 query/form 提取 group_id, user_id, nickname。"""
+    container = await _container(request)
+    params = request.query_params
+    form = await request.form() if request.method == "POST" else {}
+    first_group = (
+        container.runtime_config.enabled_group_ids()[0]
+        if container.runtime_config.enabled_group_ids()
+        else "test_group"
+    )
+    group_id = params.get("group_id") or form.get("group_id") or first_group
+    user_id = params.get("user_id") or form.get("user_id") or _TEST_DEFAULT_USER
+    nickname = params.get("nickname") or form.get("nickname") or _TEST_DEFAULT_NICK
+    return container, str(group_id), str(user_id), str(nickname)
+
+
+@router.post("/api/test/enroll")
+async def test_enroll(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    try:
+        reply = await container.learning_usecase.enroll(
+            EnrollmentContext(
+                qq_group_id=group_id, group_name="TestGroup",
+                qq_user_id=user_id, nickname=nickname,
+            )
+        )
+        return _ok(reply=reply)
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@router.get("/api/test/today-task")
+async def test_today_task(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    try:
+        await container.learning_usecase.build_today_lesson(qq_group_id=group_id)
+        envelope = await container.learning_usecase.get_today_task_envelope(
+            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+        )
+        return _ok(envelope, reply=envelope.plain_text)
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@router.post("/api/test/submit-task")
+async def test_submit_task(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    form = await request.form()
+    task_id = form.get("task_id")
+    content = form.get("content")
+    if not task_id or not content:
+        return _err("需要 task_id 和 content 参数")
+    if not str(task_id).isdigit():
+        return _err("task_id 必须是数字")
+    try:
+        reply = await container.learning_usecase.submit_task(
+            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            task_id=int(task_id), content=str(content),
+        )
+        return _ok(reply=reply)
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@router.get("/api/test/review")
+async def test_review(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    try:
+        reply = await container.learning_usecase.review_now(
+            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            limit=container.runtime_config.daily_review_insert_count(),
+        )
+        return _ok(reply=reply)
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@router.get("/api/test/level")
+async def test_level(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    try:
+        reply = await container.learning_usecase.refresh_user_level(
+            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+        )
+        return _ok(reply=reply)
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@router.get("/api/test/quiz")
+async def test_quiz(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    try:
+        envelope = await container.quiz_usecase.start_weekly_quiz_envelope(
+            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+        )
+        return _ok(envelope, reply=envelope.plain_text)
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@router.post("/api/test/quiz/submit")
+async def test_quiz_submit(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    form = await request.form()
+    session_id = form.get("session_id")
+    if not session_id or not str(session_id).isdigit():
+        return _err("需要 session_id 参数（数字）")
+    answers: dict[int, str] = {}
+    for key, val in form.items():
+        if key.startswith("a"):
+            num = key[1:]
+            if num.isdigit():
+                answers[int(num)] = str(val).upper()
+    if not answers:
+        return _err("需要至少一个答案，格式: a1=A&a2=B")
+    try:
+        reply = await container.quiz_usecase.submit_weekly_quiz(
+            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            session_id=int(session_id), answers=answers,
+        )
+        return _ok(reply=reply)
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@router.get("/api/test/weekly-report")
+async def test_weekly_report(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    try:
+        envelope = await container.report_usecase.build_weekly_report_envelope(
+            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+        )
+        return _ok(envelope, reply=envelope.plain_text)
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@router.get("/api/test/error-digest")
+async def test_error_digest(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    try:
+        envelope = await container.report_usecase.build_daily_error_digest_envelope(
+            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+        )
+        if envelope is None:
+            return _ok(reply="当日无错误记录")
+        return _ok(envelope, reply=envelope.plain_text)
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@router.get("/api/test/progress")
+async def test_progress(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    try:
+        envelope = await container.report_usecase.build_daily_progress_envelope(
+            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+        )
+        if envelope is None:
+            return _ok(reply="当日无学习进度")
+        return _ok(envelope, reply=envelope.plain_text)
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@router.get("/api/test/friends")
+async def test_friends(request: Request):
+    container = await _container(request)
+    if container.friends_usecase is None:
+        return _err("Friends 功能未启用")
+    try:
+        today = date.today()
+        envelope = await container.friends_usecase.build_daily_friends_envelope(
+            biz_date=today, start_date=today,
+        )
+        return _ok(envelope, reply=envelope.plain_text)
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@router.post("/api/test/message")
+async def test_message(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    form = await request.form()
+    message_text = form.get("message_text")
+    if not message_text:
+        return _err("需要 message_text 参数")
+    try:
+        raw_event_id = f"test-{int(datetime.now(UTC).timestamp() * 1000)}"
+        text = str(message_text)
+        # 先写入对话缓存（即使 LLM 调用失败也保留）
+        container.group_dialogue_store.append_group_message(
+            group_id=group_id, user_id=user_id, nickname=nickname, text=text,
+        )
+        reply = await container.message_usecase.handle_at_message(
+            MessageCommandContext(
+                raw_event_id=raw_event_id,
+                group_id=group_id,
+                group_name="TestGroup",
+                user_id=user_id,
+                nickname=nickname,
+                message_text=text,
+            )
+        )
+        return _ok(reply=reply)
+    except Exception as exc:
+        return _err(f"{exc.__class__.__name__}: {exc}")
+
+
+@router.get("/api/test/cache-status")
+async def cache_status(request: Request):
+    """调试接口：查看当前对话缓存状态。"""
+    container = await _container(request)
+    store = container.group_dialogue_store
+    result = {}
+    for group_id, bucket in store._store.items():
+        result[group_id] = {
+            "biz_date": str(bucket.biz_date),
+            "entry_count": len(bucket.entries),
+            "last_entries": [
+                {"speaker": e.speaker, "text": e.text[:50]}
+                for e in bucket.entries[-3:]
+            ],
+        }
+    return _ok({"groups": result, "total_groups": len(result)})

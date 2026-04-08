@@ -174,20 +174,54 @@ class OpenAICompatibleProvider:
             source_kind=source_kind,
         )
 
-    async def _chat_json(self, *, messages: list[dict], temperature: float, max_tokens: int) -> dict:
-        content = await self._chat_text(messages=messages, temperature=temperature, max_tokens=max_tokens)
+    async def _chat_json(
+        self,
+        *,
+        messages: list[dict],
+        temperature: float,
+        max_tokens: int,
+        timeout: float | None = None,
+    ) -> dict:
+        content = await self._chat_text(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
         return json.loads(self._extract_json(content))
 
-    async def _chat_text(self, *, messages: list[dict], temperature: float, max_tokens: int) -> str:
-        response = await self._client_or_create().post(
-            self._chat_completions_url(),
-            json={
-                "model": self._model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
-        )
+    async def _chat_text(
+        self,
+        *,
+        messages: list[dict],
+        temperature: float,
+        max_tokens: int,
+        timeout: float | None = None,
+    ) -> str:
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if timeout is None or timeout == self._timeout:
+            response = await self._client_or_create().post(
+                self._chat_completions_url(),
+                json=payload,
+            )
+        else:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+            ) as client:
+                response = await client.post(
+                    self._chat_completions_url(),
+                    json=payload,
+                )
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"].strip()
 

@@ -22,12 +22,6 @@ passive_group_observer = on_message(rule=Rule(_matches_passive_observer), priori
 async def handle_passive_group_observer(bot: Bot, event: GroupMessageEvent, text: str = EventPlainText()) -> None:
     if str(event.user_id) == str(bot.self_id):
         return
-    if event.is_tome():
-        return
-    bot_id = str(getattr(bot, "self_id", ""))
-    for segment in event.message:
-        if segment.type == "at" and str(segment.data.get("qq", "")) == bot_id:
-            return
 
     cleaned = text.strip()
     if not cleaned:
@@ -40,6 +34,16 @@ async def handle_passive_group_observer(bot: Bot, event: GroupMessageEvent, text
     container = await get_or_init_container()
     enabled_group_ids = container.runtime_config.enabled_group_ids()
     if enabled_group_ids and str(event.group_id) not in enabled_group_ids:
+        return
+
+    # @机器人消息：只写对话缓存，不走被动观察 DB 逻辑（业务由 at_message handler 处理）
+    if event.is_tome():
+        container.group_dialogue_store.append_group_message(
+            group_id=str(event.group_id),
+            user_id=str(event.user_id),
+            nickname=event.sender.card or event.sender.nickname or "",
+            text=cleaned,
+        )
         return
 
     await container.conversation_usecase.observe_passive_group_message(

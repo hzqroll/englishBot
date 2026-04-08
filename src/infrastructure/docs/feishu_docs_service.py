@@ -107,16 +107,14 @@ class FeishuDocsService:
         doc_url = f"https://bytedance.larkoffice.com/docx/{document_id}"
 
         blocks = _card_document_to_blocks(envelope.card_document, "friends_dialogue", target_date)
-        if blocks:
-            try:
-                self._client.append_blocks(document_id=document_id, blocks=blocks)
-                logger.info(
-                    "feishu docs: appended %d blocks for friends S%02dE%02d",
-                    len(blocks), season, episode,
-                )
-            except Exception:
-                logger.exception("feishu docs: append_blocks failed for friends S%02dE%02d", season, episode)
+        if not blocks:
+            return None
 
+        self._client.append_blocks(document_id=document_id, blocks=blocks)
+        logger.info(
+            "feishu docs: appended %d blocks for friends S%02dE%02d",
+            len(blocks), season, episode,
+        )
         return doc_url
 
     async def _ensure_friends_folder(self) -> str:

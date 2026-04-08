@@ -39,3 +39,15 @@ message:
   enable_task_cards: true
   card_fallback_to_text: true
   group_dialogue_trigger_min_sentences: 10
+
+feishu:
+  enabled_group_ids: []
+  docs:
+    enabled: false
+    folder_name: "englishImprovePlan"
+    notify_chat_ids: []
+
+friends:
+  enabled: false
+  start_date: ""
+  daily_push_cron: "0 9 * * *"

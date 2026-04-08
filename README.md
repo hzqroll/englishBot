@@ -1,9 +1,11 @@
 # English Learning QQ Bot
 
-一个基于 `NoneBot2 + NapCat + SQLite + FastAPI` 的英语学习 QQ 机器人。
+一个基于 `NoneBot2 + NapCat + SQLite + FastAPI` 的英语学习群机器人，当前支持 QQ 和飞书双渠道。
 
 ## 方案文档
 
+- 当前功能说明书：[docs/EnglishBotProductOverview.md](docs/EnglishBotProductOverview.md)
+- 产品评估与优化建议：[docs/EnglishBotProductEvaluation.md](docs/EnglishBotProductEvaluation.md)
 - 产品设计：[docs/product-design.md](docs/product-design.md)
 - 第一版技术方案：[docs/technical-solution-v1.md](docs/technical-solution-v1.md)
 - 第一版开发计划与 Todo：[docs/development-plan-v1.md](docs/development-plan-v1.md)
@@ -14,6 +16,7 @@
 - 把纠错结果沉淀为 `error_points` 和 `review_items`
 - 支持固定命令：`报名学习`、`今日任务`、`提交任务`、`复习一下`、`我的等级`、`开始周测`、`答题`、`本周总结`、`帮助`
 - 支持任务类消息卡片：`今日任务`、`周测`、`周报` 直接在群消息里展示完整内容
+- 飞书侧支持每日 `Friends` 对话学习推送，并可按集归档到飞书文档
 - 提供 `FastAPI + Jinja2` 管理后台
 - 支持定时推送、周报、周测、SQLite 备份和动态配置覆盖
 

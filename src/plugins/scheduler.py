@@ -478,6 +478,14 @@ async def daily_friends_job(force_run: bool = False) -> None:
         friends_cfg = container.settings.static.friends
         start_date = date.fromisoformat(friends_cfg.start_date) if friends_cfg.start_date else date.today()
         target_date = datetime.now().astimezone().date()
+        if target_date < start_date:
+            logger.info(
+                "daily friends job skipped before start_date: target_date=%s start_date=%s",
+                target_date,
+                start_date,
+            )
+            await container.learning_repo.finish_job_lock(job_name="daily_friends", biz_key=biz_date, status="success")
+            return
 
         envelope = await container.friends_usecase.build_daily_friends_envelope(
             biz_date=target_date,
@@ -485,9 +493,10 @@ async def daily_friends_job(force_run: bool = False) -> None:
         )
         segment = container.friends_usecase.provider.get_segment(target_date, start_date)
 
+        bots = list(get_bots().values())
         feishu_channel = container.channels.get("feishu")
         if feishu_channel:
-            # Friends 内容只写入飞书文档，群内只推送文档链接
+            doc_url: str | None = None
             if container.feishu_docs_service is not None:
                 doc_url = await _save_friends_to_docs(
                     container=container,
@@ -497,16 +506,23 @@ async def daily_friends_job(force_run: bool = False) -> None:
                     episode_title=segment.title,
                     target_date=target_date,
                 )
-                if doc_url:
-                    doc_title = f"S{segment.season:02d}E{segment.episode:02d} - {segment.title}"
-                    for chat_id in container.runtime_config.feishu_enabled_group_ids():
-                        try:
-                            await feishu_channel.send_text(
-                                chat_id,
-                                f"Friends {doc_title} 今日学习内容已更新：{doc_url}",
-                            )
-                        except Exception:
-                            logger.exception("failed to send friends doc link to chat %s", chat_id)
+
+            if doc_url:
+                doc_title = f"S{segment.season:02d}E{segment.episode:02d} - {segment.title}"
+                delivery_envelope = MessageEnvelope(
+                    plain_text=f"Friends {doc_title} 今日学习内容已更新：{doc_url}",
+                )
+            else:
+                delivery_envelope = envelope
+
+            for chat_id in container.runtime_config.feishu_enabled_group_ids():
+                await _send_group_envelope(
+                    container=container,
+                    bots=bots,
+                    group_id=chat_id,
+                    envelope=delivery_envelope,
+                    job_name="friends_dialogue",
+                )
         await container.learning_repo.finish_job_lock(job_name="daily_friends", biz_key=biz_date, status="success")
     except Exception:
         logger.exception("daily friends job failed")
