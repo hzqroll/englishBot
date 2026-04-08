@@ -30,7 +30,7 @@ ssh ubuntu@110.40.137.26 "cd /home/ubuntu/englishBot && find src -name '__pycach
 
 基于 Clean Architecture 的 NoneBot2 英语学习机器人，支持 QQ 和飞书双渠道，分为四层：
 
-- **`src/plugins/`** — NoneBot2 插件，消息与调度入口（`at_message.py`、`commands.py`、`scheduler.py`）
+- **`src/plugins/`** — NoneBot2 插件，消息与调度入口（`commands.py` 固定命令 priority=5、`at_message.py` @机器人+分析指令 priority=10、`passive_group_observer.py` 被动观察 priority=30、`scheduler.py` 定时任务）
 - **`src/application/`** — 用例层，编排业务流程（MessageUseCase、LearningUseCase、QuizUseCase、ReportUseCase、ConversationUseCase）
 - **`src/domain/`** — 领域层，纯业务规则：实体（entities/）、领域服务（services/）、值对象（value_objects/）
 - **`src/infrastructure/`** — 基础设施层：数据库（db/）、外部服务（providers/）、配置（settings/）、鉴权（auth/）、缓存（cache/）、消息渲染（messaging/）、渠道适配（channels/）
@@ -51,6 +51,8 @@ ssh ubuntu@110.40.137.26 "cd /home/ubuntu/englishBot && find src -name '__pycach
 - 卡片渲染使用飞书互动卡片 JSON（`msg_type: "interactive"`），不需要 Pillow
 - 消息历史通过 `ListMessageRequest` API 拉取
 - SDK 数据模型使用 `message_type`（非 `msg_type`）
+- 消息路由：固定命令走 `handle_fixed_command_text`，分析指令和 @机器人 走 `message_usecase.handle_at_message`
+- 学习内容自动归档到飞书文档（周文档 + Friends 按集文档），通过 `FeishuDocsService` 管理
 
 ### 依赖注入
 
@@ -98,13 +100,14 @@ UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`
 
 ### 定时任务
 
-六个 cron 定时任务（`src/plugins/scheduler.py`），通过 `nonebot-apscheduler` 注册：
+七个 cron 定时任务（`src/plugins/scheduler.py`），通过 `nonebot-apscheduler` 注册：
 1. **daily_push** — 晨间推送课程（默认 8:00）
 2. **daily_error_digest** — 晚间错误摘要（默认 18:00）
 3. **daily_progress** — 每日学习进度（默认 20:00）
 4. **weekly_report** — 周报（周一 9:00）
 5. **weekly_quiz** — 周测（周日 19:00）
 6. **nightly_backup** — 数据库备份（每日 2:00）
+7. **daily_friends** — 每日 Friends 对话推送（默认 9:00）
 
 所有任务通过 `acquire_job_lock()` 防止并发执行，管理后台 `/admin/triggers/{job_name}` 支持手动触发。所有任务同时推送 QQ 群和飞书群。
 
@@ -120,7 +123,7 @@ UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`
 - **间隔复习**（`ReviewScheduler`）：1→2→4→8... 天倍增间隔
 - **分级系统**（`LevelService`）：基于活跃度 + 测验分数的 beginner/intermediate 两级
 - **上下文缓存**（`ContextStore`）：LRU 缓存，15 分钟 TTL
-- **命令路由**（`command_catalog.py`）：固定命令文本匹配，支持 `is_fixed_command_text()` 判断
+- **命令路由**（`command_catalog.py` + `message_intents.py`）：固定命令（`is_fixed_command_text`）走 `group_command`（priority=5），`大模型润色` / `分析最近聊天内容`（`is_analysis_control_text`）走 `at_message`（priority=10）统一处理
 
 ### 管理后台
 

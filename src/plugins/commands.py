@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import re
+
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent
 from nonebot.rule import Rule
 
 from src.application.conversation_usecases import ConversationContext
 from src.application.learning_usecases import EnrollmentContext
-from src.application.message_intents import is_analysis_control_text
-from src.application.message_usecases import MessageCommandContext
 from src.domain.value_objects.messaging import MessageEnvelope
 from src.infrastructure.settings.container import ServiceContainer, get_or_init_container
 from src.plugins.command_catalog import is_fixed_command_text, match_fixed_command, render_help_text
@@ -25,7 +25,7 @@ def _matches_learning_command(event: Event) -> bool:
     if not isinstance(event, GroupMessageEvent):
         return False
     text = _command_text(event)
-    return is_fixed_command_text(text) or is_analysis_control_text(text)
+    return is_fixed_command_text(text)
 
 
 group_command = on_message(rule=Rule(_matches_learning_command), priority=5, block=True)
@@ -147,16 +147,18 @@ async def _handle_submit_quiz(
 ) -> str:
     args = text.removeprefix("答题").strip()
     parts = args.split()
-    if len(parts) < 2 or not parts[0].isdigit():
+    if not parts or not parts[0].isdigit():
         return "格式示例：答题 10 1:A 2:B 3:C"
     session_id = int(parts[0])
     answers: dict[int, str] = {}
     for chunk in parts[1:]:
-        if ":" not in chunk:
-            continue
-        index_text, answer = chunk.split(":", 1)
-        if index_text.isdigit():
-            answers[int(index_text)] = answer.strip().upper()
+        m = re.match(r"(\d+)[.:：]\s*([A-Da-d])", chunk)
+        if not m:
+            m = re.match(r"(\d)([A-Da-d])", chunk)
+        if m:
+            answers[int(m.group(1))] = m.group(2).upper()
+    if not answers:
+        return "格式示例：答题 10 1:A 2:B 3:C"
     return await container.quiz_usecase.submit_weekly_quiz(
         qq_group_id=group_id,
         qq_user_id=user_id,
@@ -180,28 +182,6 @@ async def _handle_weekly_report(
     )
 
 
-async def _handle_analysis_control_text(
-    *,
-    container: ServiceContainer,
-    group_id: str,
-    group_name: str,
-    user_id: str,
-    nickname: str,
-    text: str,
-    raw_event_id: str,
-) -> str:
-    return await container.message_usecase.handle_at_message(
-        MessageCommandContext(
-            raw_event_id=raw_event_id,
-            group_id=group_id,
-            group_name=group_name,
-            user_id=user_id,
-            nickname=nickname,
-            message_text=text,
-        )
-    )
-
-
 async def handle_fixed_command_text(
     *,
     group_id: str,
@@ -215,18 +195,6 @@ async def handle_fixed_command_text(
     container = container or await get_or_init_container()
     if not container.runtime_config.is_enabled_chat(group_id):
         return MessageEnvelope(plain_text="当前群未启用学习功能。")
-
-    if is_analysis_control_text(text):
-        message = await _handle_analysis_control_text(
-            container=container,
-            group_id=group_id,
-            group_name=group_name,
-            user_id=user_id,
-            nickname=nickname,
-            text=text,
-            raw_event_id=raw_event_id,
-        )
-        return _to_envelope(message)
 
     await container.conversation_usecase.record_command_message(
         ConversationContext(

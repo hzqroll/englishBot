@@ -138,7 +138,7 @@ class FeishuBot:
         if not container.runtime_config.is_enabled_chat(chat_id):
             return
 
-        if is_fixed_command_text(text) or is_analysis_control_text(text):
+        if is_fixed_command_text(text):
             envelope = await handle_fixed_command_text(
                 group_id=chat_id,
                 group_name="",
@@ -149,8 +149,8 @@ class FeishuBot:
                 container=container,
             )
             await channel.send_envelope(chat_id, envelope)
-        elif is_mention:
-            # @机器人 → 翻译/纠错
+        elif is_analysis_control_text(text) or is_mention:
+            # 分析指令 / @机器人 → 翻译/纠错/润色
             reply = await container.message_usecase.handle_at_message(
                 MessageCommandContext(
                     raw_event_id=raw_event_id,
