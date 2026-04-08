@@ -59,6 +59,13 @@ def register_jobs() -> None:
         replace_existing=True,
         **_cron_kwargs(runtime_config.cron("scheduler.nightly_backup_cron")),
     )
+    scheduler.add_job(
+        daily_friends_job,
+        "cron",
+        id="daily_friends",
+        replace_existing=True,
+        **_cron_kwargs(runtime_config.cron("friends.daily_push_cron")),
+    )
 
 
 async def daily_push_job(force_run: bool = False) -> None:
@@ -429,8 +436,8 @@ async def _send_group_envelope(
             provider_response="send_failed",
         )
 
-    # 飞书群消息发送后，归档到飞书文档（非阻塞）
-    if is_feishu and container.feishu_docs_service is not None:
+    # 飞书群消息发送后，归档到飞书文档（非阻塞）— 跳过 Friends 内容（使用独立文档）
+    if is_feishu and container.feishu_docs_service is not None and job_name != "friends_dialogue":
         await _save_to_feishu_docs(
             container=container,
             envelope=envelope,
@@ -457,3 +464,71 @@ async def _save_to_feishu_docs(
         )
     except Exception:
         logger.exception("feishu docs save failed for card_type=%s", card_type)
+
+
+async def daily_friends_job(force_run: bool = False) -> None:
+    container = await get_or_init_container()
+    if container.friends_usecase is None:
+        return
+    await container.runtime_config.refresh()
+    biz_date = datetime.now(UTC).strftime("%Y-%m-%d")
+    if not await container.learning_repo.acquire_job_lock(job_name="daily_friends", biz_key=biz_date, force=force_run):
+        return
+    try:
+        friends_cfg = container.settings.static.friends
+        start_date = date.fromisoformat(friends_cfg.start_date) if friends_cfg.start_date else date.today()
+        target_date = datetime.now().astimezone().date()
+
+        envelope = await container.friends_usecase.build_daily_friends_envelope(
+            biz_date=target_date,
+            start_date=start_date,
+        )
+        segment = container.friends_usecase.provider.get_segment(target_date, start_date)
+
+        bots = list(get_bots().values())
+        feishu_channel = container.channels.get("feishu")
+        if feishu_channel:
+            for chat_id in container.runtime_config.feishu_enabled_group_ids():
+                await _send_group_envelope(
+                    container=container,
+                    bots=bots,
+                    group_id=chat_id,
+                    envelope=envelope,
+                    job_name="friends_dialogue",
+                )
+                # 写入独立的 per-episode 飞书文档
+                if container.feishu_docs_service is not None:
+                    await _save_friends_to_docs(
+                        container=container,
+                        envelope=envelope,
+                        season=segment.season,
+                        episode=segment.episode,
+                        episode_title=segment.title,
+                        target_date=target_date,
+                    )
+        await container.learning_repo.finish_job_lock(job_name="daily_friends", biz_key=biz_date, status="success")
+    except Exception:
+        logger.exception("daily friends job failed")
+        await container.learning_repo.finish_job_lock(job_name="daily_friends", biz_key=biz_date, status="failed")
+
+
+async def _save_friends_to_docs(
+    *,
+    container,
+    envelope: MessageEnvelope,
+    season: int,
+    episode: int,
+    episode_title: str,
+    target_date: date,
+) -> None:
+    """将 Friends 内容写入按集飞书文档。"""
+    try:
+        await container.feishu_docs_service.append_friends_content(
+            envelope=envelope,
+            season=season,
+            episode=episode,
+            episode_title=episode_title,
+            target_date=target_date,
+        )
+    except Exception:
+        logger.exception("feishu docs save failed for friends S%02dE%02d", season, episode)

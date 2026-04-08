@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.application.admin_usecases import AdminUseCase
 from src.application.conversation_usecases import ConversationUseCase
+from src.application.friends_usecases import FriendsUseCase
 from src.application.learning_usecases import LearningUseCase
 from src.application.message_usecases import MessageUseCase
 from src.application.quiz_usecases import QuizUseCase
@@ -31,6 +32,7 @@ from src.infrastructure.db.session import create_engine, create_session_factory,
 from src.infrastructure.messaging.renderers import ImageCardRenderer, MessageDeliveryService, PlainTextRenderer
 from src.infrastructure.providers.curriculum_static import StaticCurriculumProvider
 from src.infrastructure.providers.english_language_tool import LanguageToolEnglishProvider
+from src.infrastructure.providers.friends_transcript import FriendsTranscriptProvider
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
 from src.infrastructure.providers.translate_tencent import TencentTranslateProvider
 from src.infrastructure.settings.loader import load_settings
@@ -64,6 +66,7 @@ class ServiceContainer:
     admin_usecase: AdminUseCase
     channels: dict[str, ChannelAdapter]
     feishu_docs_service: FeishuDocsService | None = None
+    friends_usecase: FriendsUseCase | None = None
 
 
 _container: ServiceContainer | None = None
@@ -225,6 +228,25 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
             )
 
     set_container(container)
+
+    # 注册 Friends 每日对话推送服务
+    if settings.static.friends.enabled:
+        transcripts_path = settings.project_root / "resources" / "friends" / "transcripts.json"
+        if transcripts_path.exists():
+            friends_provider = FriendsTranscriptProvider(transcripts_path)
+            container.friends_usecase = FriendsUseCase(
+                friends_provider=friends_provider,
+                llm_provider=correction_provider,
+                translate_provider=translate_provider,
+            )
+            logger.info(
+                "friends feature enabled: %d segments loaded from %s",
+                friends_provider.total_segments,
+                transcripts_path,
+            )
+        else:
+            logger.warning("friends feature enabled but transcripts not found: %s", transcripts_path)
+
     return container
 
 

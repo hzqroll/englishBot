@@ -47,3 +47,8 @@ feishu:
         folder_name: "englishImprovePlan"
         notify_chat_ids:
           - "oc_9c6c87dddd8a0cb8277301607c1f20ff"
+
+friends:
+    enabled: true
+    start_date: "2026-04-15"
+    daily_push_cron: "0 9 * * *"

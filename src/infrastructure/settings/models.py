@@ -98,6 +98,12 @@ class FeishuSettings(BaseModel):
     docs: FeishuDocsSettings = Field(default_factory=FeishuDocsSettings)
 
 
+class FriendsSettings(BaseModel):
+    enabled: bool = False
+    start_date: str = ""
+    daily_push_cron: str = "0 9 * * *"
+
+
 class StaticConfig(BaseModel):
     bot: BotSettings = Field(default_factory=BotSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
@@ -106,6 +112,7 @@ class StaticConfig(BaseModel):
     admin: AdminUiSettings = Field(default_factory=AdminUiSettings)
     message: MessageSettings = Field(default_factory=MessageSettings)
     feishu: FeishuSettings = Field(default_factory=FeishuSettings)
+    friends: FriendsSettings = Field(default_factory=FriendsSettings)
 
 
 @dataclass(slots=True)

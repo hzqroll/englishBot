@@ -85,6 +85,69 @@ class FeishuDocsService:
 
         return doc_id
 
+    # ------------------------------------------------------------------
+    # Friends per-episode document methods
+    # ------------------------------------------------------------------
+
+    async def append_friends_content(
+        self,
+        *,
+        envelope: MessageEnvelope,
+        season: int,
+        episode: int,
+        episode_title: str,
+        target_date: date,
+    ) -> None:
+        """将 Friends 对话内容追加到按集文档中。"""
+        if envelope.card_document is None:
+            return
+
+        folder_token = await self._ensure_friends_folder()
+        document_id = await self._ensure_episode_doc(folder_token, season, episode, episode_title)
+        blocks = _card_document_to_blocks(envelope.card_document, "friends_dialogue", target_date)
+
+        if not blocks:
+            return
+
+        self._client.append_blocks(document_id=document_id, blocks=blocks)
+        logger.info(
+            "feishu docs: appended %d blocks for friends S%02dE%02d",
+            len(blocks), season, episode,
+        )
+
+    async def _ensure_friends_folder(self) -> str:
+        """确保 friends 根文件夹存在。"""
+        token = await self._repo.get_value("feishu_docs.friends_folder_token")
+        if token:
+            return token
+        token = self._client.create_folder(name="friends")
+        await self._repo.save_value("feishu_docs.friends_folder_token", token)
+        logger.info("feishu docs: created friends folder (token=%s)", token)
+        return token
+
+    async def _ensure_episode_doc(
+        self, folder_token: str, season: int, episode: int, title: str,
+    ) -> str:
+        """确保单集文档存在，首次创建时通知群。"""
+        cache_key = f"feishu_docs.friends_doc.s{season:02d}e{episode:02d}"
+        doc_id = await self._repo.get_value(cache_key)
+        if doc_id:
+            return doc_id
+
+        doc_title = f"S{season:02d}E{episode:02d} - {title}"
+        doc_id = self._client.create_document(title=doc_title, folder_token=folder_token)
+        await self._repo.save_value(cache_key, doc_id)
+        logger.info("feishu docs: created episode doc %s (id=%s)", doc_title, doc_id)
+
+        doc_url = f"https://bytedance.larkoffice.com/docx/{doc_id}"
+        for chat_id in self._notify_chat_ids:
+            try:
+                await self._channel.send_text(chat_id, f"Friends {doc_title} 文档已创建：{doc_url}")
+            except Exception:
+                logger.exception("feishu docs: failed to notify chat %s", chat_id)
+
+        return doc_id
+
 
 # ------------------------------------------------------------------
 # Block conversion helpers
@@ -95,6 +158,7 @@ _CARD_TYPE_LABELS: dict[str, str] = {
     "error_digest": "错误摘要",
     "progress": "学习进度",
     "weekly_report": "周报",
+    "friends_dialogue": "Friends 对话",
 }
 
 

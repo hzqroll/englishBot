@@ -245,6 +245,7 @@ async def trigger_job(
         return RedirectResponse("/admin/login", status_code=303)
     from src.plugins.scheduler import (
         daily_error_digest_job,
+        daily_friends_job,
         daily_progress_job,
         daily_push_job,
         nightly_backup_job,
@@ -259,6 +260,7 @@ async def trigger_job(
         "weekly_report": weekly_report_job,
         "weekly_quiz": weekly_quiz_job,
         "nightly_backup": nightly_backup_job,
+        "daily_friends": daily_friends_job,
     }
     job = job_map.get(job_name)
     if job is None:
@@ -272,7 +274,7 @@ async def trigger_job(
     force_run = bool(force_rerun)
     if job_name in {"daily_error_digest", "daily_progress", "weekly_report", "weekly_quiz"}:
         await job(target_date=parsed_target_date, force_run=force_run)
-    elif job_name == "daily_push":
+    elif job_name in {"daily_push", "daily_friends"}:
         await job(force_run=force_run)
     else:
         await job()

@@ -89,6 +89,7 @@ class RuntimeConfigService:
             "scheduler.weekly_report_cron": self.settings.static.scheduler.weekly_report_cron,
             "scheduler.weekly_quiz_cron": self.settings.static.scheduler.weekly_quiz_cron,
             "scheduler.nightly_backup_cron": self.settings.static.scheduler.nightly_backup_cron,
+            "friends.daily_push_cron": self.settings.static.friends.daily_push_cron,
         }
         return self._get(key, defaults[key])
 
