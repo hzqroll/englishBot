@@ -42,7 +42,7 @@ async def handle_at_message(bot: Bot, event: GroupMessageEvent, text: str = Even
             "发英文→纠错 | 发中文→翻译\n"
             "大模型润色：<对话> → 整体分析\n"
             "分析最近聊天内容 → 群聊分析\n\n"
-            "输入"帮助"查看完整命令列表"
+            '输入"帮助"查看完整命令列表'
         )
     if is_fixed_command_text(cleaned):
         await at_message.finish(
