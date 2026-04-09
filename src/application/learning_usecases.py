@@ -159,6 +159,7 @@ class LearningUseCase:
                 target_items=target_items,
                 yesterday_review=(lesson.package_snapshot_json or {}).get("yesterday_review", []),
             ),
+            card_type="daily_lesson",
         )
 
     async def submit_task(

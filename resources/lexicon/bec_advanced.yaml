@@ -1,3 +1,10 @@
+# ============================================================
+# BEC Vantage 中级商务英语词库
+# 共 100 个词项：10 个主题 ×（5 chunk + 5 word）
+# ============================================================
+
+# ---------- 主题 1: meeting（会议改期）----------
+
 - entry_key: reschedule_the_meeting
   entry_type: chunk
   text: reschedule the meeting
@@ -98,7 +105,9 @@
   difficulty: unified
   tags: [meeting, schedule, office]
 
-- entry_key: project_update
+# ---------- 主题 2: project_update（项目进度）----------
+
+- entry_key: provide_a_quick_update
   entry_type: chunk
   text: provide a quick update
   phonetic: /prəˈvaɪd ə kwɪk ʌpˈdeɪt/
@@ -138,7 +147,7 @@
   difficulty: unified
   tags: [project_update, office]
 
-- entry_key: follow_up
+- entry_key: follow_up_with
   entry_type: chunk
   text: follow up with
   phonetic: /ˈfɑːloʊ ʌp wɪð/
@@ -197,3 +206,819 @@
   example: Client feedback is our top priority this week.
   difficulty: unified
   tags: [project_update, office]
+
+# ---------- 主题 3: leave（请假/休假）----------
+
+- entry_key: take_time_off
+  entry_type: chunk
+  text: take time off
+  phonetic: /teɪk taɪm ɒf/
+  meaning_zh: 请假；休假
+  usage_scene: 向上级申请休假
+  example: I was wondering if I could take time off next Monday.
+  difficulty: unified
+  tags: [leave, hr, office]
+
+- entry_key: personal_matter
+  entry_type: chunk
+  text: attend to a personal matter
+  phonetic: /əˈtend tuː ə ˈpɜːrsənəl ˈmætər/
+  meaning_zh: 处理个人事务
+  usage_scene: 说明请假原因
+  example: I need to attend to a personal matter on Friday.
+  difficulty: unified
+  tags: [leave, hr, office]
+
+- entry_key: hand_over
+  entry_type: chunk
+  text: hand over
+  phonetic: /hænd ˈoʊvər/
+  meaning_zh: 移交；交接工作
+  usage_scene: 请假前交接待办事项
+  example: I will hand over the pending items to Jack before I leave.
+  difficulty: unified
+  tags: [leave, delegation, office]
+
+- entry_key: approve_your_request
+  entry_type: chunk
+  text: approve your request
+  phonetic: /əˈpruːv jɔːr rɪˈkwest/
+  meaning_zh: 批准你的申请
+  usage_scene: 上级批准请假
+  example: I will approve your request in the system right away.
+  difficulty: unified
+  tags: [leave, hr, office]
+
+- entry_key: make_sure_covered
+  entry_type: chunk
+  text: make sure your tasks are covered
+  phonetic: /meɪk ʃʊr jɔːr tæsks ɑːr ˈkʌvərd/
+  meaning_zh: 确保你的工作有人接手
+  usage_scene: 请假前的工作安排
+  example: Could you make sure your tasks are covered before you leave?
+  difficulty: unified
+  tags: [leave, delegation, office]
+
+- entry_key: sick_leave
+  entry_type: word
+  text: sick leave
+  phonetic: /sɪk liːv/
+  meaning_zh: 病假
+  usage_scene: 请病假、考勤记录
+  example: She is on sick leave for the rest of the week.
+  difficulty: unified
+  tags: [leave, hr, office]
+
+- entry_key: annual_leave
+  entry_type: word
+  text: annual leave
+  phonetic: /ˈænjuəl liːv/
+  meaning_zh: 年假
+  usage_scene: 申请带薪年假
+  example: I have five days of annual leave remaining this year.
+  difficulty: unified
+  tags: [leave, hr, office]
+
+- entry_key: absence
+  entry_type: word
+  text: absence
+  phonetic: /ˈæbsəns/
+  meaning_zh: 缺勤；不在
+  usage_scene: 记录出勤情况
+  example: Please report any planned absences to HR in advance.
+  difficulty: unified
+  tags: [leave, hr, office]
+
+- entry_key: cover_for
+  entry_type: word
+  text: cover for
+  phonetic: /ˈkʌvər fɔːr/
+  meaning_zh: 代替某人工作
+  usage_scene: 同事不在时代班
+  example: Can you cover for me while I am on leave next week?
+  difficulty: unified
+  tags: [leave, delegation, office]
+
+- entry_key: notice
+  entry_type: word
+  text: notice
+  phonetic: /ˈnoʊtɪs/
+  meaning_zh: 提前通知
+  usage_scene: 请假需要提前告知
+  example: Please give at least three days' notice for leave requests.
+  difficulty: unified
+  tags: [leave, hr, office]
+
+# ---------- 主题 4: email（邮件礼仪）----------
+
+- entry_key: follow_up_email
+  entry_type: chunk
+  text: follow-up email
+  phonetic: /ˈfɑːloʊ ʌp ˈiːmeɪl/
+  meaning_zh: 跟进邮件
+  usage_scene: 催促回复或确认
+  example: I am sending a follow-up email regarding the proposal we discussed.
+  difficulty: unified
+  tags: [email, communication, office]
+
+- entry_key: state_the_purpose
+  entry_type: chunk
+  text: state the purpose clearly
+  phonetic: /steɪt ðə ˈpɜːrpəs ˈklɪrli/
+  meaning_zh: 清楚说明目的
+  usage_scene: 写邮件开头
+  example: Make sure you state the purpose clearly in the opening line.
+  difficulty: unified
+  tags: [email, communication, office]
+
+- entry_key: stay_in_the_loop
+  entry_type: chunk
+  text: stay in the loop
+  phonetic: /steɪ ɪn ðə luːp/
+  meaning_zh: 保持知情；了解最新进展
+  usage_scene: 抄送邮件、同步信息
+  example: Please CC the project manager so everyone stays in the loop.
+  difficulty: unified
+  tags: [email, communication, office]
+
+- entry_key: call_to_action
+  entry_type: chunk
+  text: call to action
+  phonetic: /kɔːl tuː ˈækʃən/
+  meaning_zh: 行动号召
+  usage_scene: 邮件结尾提出明确要求
+  example: Always include a clear call to action at the end of your email.
+  difficulty: unified
+  tags: [email, communication, office]
+
+- entry_key: look_forward_to
+  entry_type: chunk
+  text: look forward to hearing from you
+  phonetic: /lʊk ˈfɔːrwərd tuː ˈhɪərɪŋ frʌm juː/
+  meaning_zh: 期待您的回复
+  usage_scene: 商务邮件结尾
+  example: I look forward to hearing from you at your earliest convenience.
+  difficulty: unified
+  tags: [email, communication, office]
+
+- entry_key: attach
+  entry_type: word
+  text: attach
+  phonetic: /əˈtætʃ/
+  meaning_zh: 附件；附上
+  usage_scene: 发送邮件附件
+  example: Please find the attached report for your review.
+  difficulty: unified
+  tags: [email, communication, office]
+
+- entry_key: recipient
+  entry_type: word
+  text: recipient
+  phonetic: /rɪˈsɪpiənt/
+  meaning_zh: 收件人
+  usage_scene: 邮件地址设置
+  example: Make sure the recipient list is correct before sending.
+  difficulty: unified
+  tags: [email, communication, office]
+
+- entry_key: subject_line
+  entry_type: word
+  text: subject line
+  phonetic: /ˈsʌbdʒɪkt laɪn/
+  meaning_zh: 邮件主题
+  usage_scene: 撰写邮件标题
+  example: Keep the subject line short and descriptive.
+  difficulty: unified
+  tags: [email, communication, office]
+
+- entry_key: cc
+  entry_type: word
+  text: CC (carbon copy)
+  phonetic: /siː siː/
+  meaning_zh: 抄送
+  usage_scene: 邮件发送时抄送相关人员
+  example: Please CC your manager on all client correspondence.
+  difficulty: unified
+  tags: [email, communication, office]
+
+- entry_key: draft
+  entry_type: word
+  text: draft
+  phonetic: /dræft/
+  meaning_zh: 草稿
+  usage_scene: 邮件撰写阶段
+  example: I saved the draft and will review it tomorrow morning.
+  difficulty: unified
+  tags: [email, communication, office]
+
+# ---------- 主题 5: complaint（客户投诉）----------
+
+- entry_key: sincerely_apologize
+  entry_type: chunk
+  text: sincerely apologize for
+  phonetic: /sɪnˈsɪərli əˈpɑːlədʒaɪz fɔːr/
+  meaning_zh: 真诚地为……道歉
+  usage_scene: 处理客户投诉
+  example: I sincerely apologize for the delay in delivery.
+  difficulty: unified
+  tags: [complaint, customer_service, office]
+
+- entry_key: look_into_this
+  entry_type: chunk
+  text: look into this right away
+  phonetic: /lʊk ˈɪntuː ðɪs raɪt əˈweɪ/
+  meaning_zh: 马上调查此事
+  usage_scene: 接到投诉后的即时回应
+  example: Let me look into this right away and find out what happened.
+  difficulty: unified
+  tags: [complaint, customer_service, office]
+
+- entry_key: understand_your_frustration
+  entry_type: chunk
+  text: understand your frustration
+  phonetic: /ˌʌndərˈstænd jɔːr frʌˈstreɪʃən/
+  meaning_zh: 理解您的不满
+  usage_scene: 表达共情
+  example: I completely understand your frustration with the situation.
+  difficulty: unified
+  tags: [complaint, customer_service, office]
+
+- entry_key: escalate_this
+  entry_type: chunk
+  text: escalate this issue
+  phonetic: /ˈeskəleɪt ðɪs ˈɪʃuː/
+  meaning_zh: 将问题升级处理
+  usage_scene: 超出权限时上报
+  example: I will escalate this issue to our senior support team immediately.
+  difficulty: unified
+  tags: [complaint, customer_service, office]
+
+- entry_key: get_back_to_you
+  entry_type: chunk
+  text: get back to you
+  phonetic: /ɡet bæk tuː juː/
+  meaning_zh: 回复你；给你反馈
+  usage_scene: 承诺后续跟进
+  example: I will get back to you by end of day with an update.
+  difficulty: unified
+  tags: [complaint, customer_service, office]
+
+- entry_key: resolve
+  entry_type: word
+  text: resolve
+  phonetic: /rɪˈzɑːlv/
+  meaning_zh: 解决
+  usage_scene: 解决客户问题
+  example: We are doing everything we can to resolve the issue.
+  difficulty: unified
+  tags: [complaint, customer_service, office]
+
+- entry_key: compensation
+  entry_type: word
+  text: compensation
+  phonetic: /ˌkɑːmpenˈseɪʃən/
+  meaning_zh: 赔偿；补偿
+  usage_scene: 对客户损失的弥补
+  example: We would like to offer compensation for the inconvenience caused.
+  difficulty: unified
+  tags: [complaint, customer_service, office]
+
+- entry_key: inconvenient
+  entry_type: word
+  text: inconvenient
+  phonetic: /ˌɪnkənˈviːniənt/
+  meaning_zh: 不方便的；造成困扰的
+  usage_scene: 承认对客户造成影响
+  example: I understand this has been very inconvenient for your team.
+  difficulty: unified
+  tags: [complaint, customer_service, office]
+
+- entry_key: feedback
+  entry_type: word
+  text: feedback
+  phonetic: /ˈfiːdbæk/
+  meaning_zh: 反馈
+  usage_scene: 收集客户意见
+  example: We value your feedback and will use it to improve our service.
+  difficulty: unified
+  tags: [complaint, customer_service, office]
+
+- entry_key: satisfaction
+  entry_type: word
+  text: satisfaction
+  phonetic: /ˌsætɪsˈfækʃən/
+  meaning_zh: 满意度
+  usage_scene: 衡量客户体验
+  example: Customer satisfaction is our top priority.
+  difficulty: unified
+  tags: [complaint, customer_service, office]
+
+# ---------- 主题 6: delegation（团队分工）----------
+
+- entry_key: take_the_lead
+  entry_type: chunk
+  text: take the lead on this
+  phonetic: /teɪk ðə liːd ɒn ðɪs/
+  meaning_zh: 牵头负责这件事
+  usage_scene: 指派负责人
+  example: Can you take the lead on this and coordinate with the team?
+  difficulty: unified
+  tags: [delegation, management, office]
+
+- entry_key: walk_through
+  entry_type: chunk
+  text: walk me through
+  phonetic: /wɔːk miː θruː/
+  meaning_zh: 给我过一遍；向我说明
+  usage_scene: 梳理任务细节
+  example: Could you walk me through the key deliverables?
+  difficulty: unified
+  tags: [delegation, communication, office]
+
+- entry_key: key_deliverables
+  entry_type: chunk
+  text: key deliverables
+  phonetic: /kiː dɪˈlɪvərəbəlz/
+  meaning_zh: 关键交付物
+  usage_scene: 明确任务产出
+  example: The financial summary and market analysis are the key deliverables.
+  difficulty: unified
+  tags: [delegation, management, office]
+
+- entry_key: top_priority
+  entry_type: chunk
+  text: top priority
+  phonetic: /tɑːp praɪˈɔːrəti/
+  meaning_zh: 最高优先级
+  usage_scene: 排列任务重要性
+  example: The client presentation is our top priority this week.
+  difficulty: unified
+  tags: [delegation, management, office]
+
+- entry_key: run_into_roadblocks
+  entry_type: chunk
+  text: run into any roadblocks
+  phonetic: /rʌn ˈɪntuː ˈeni ˈroʊdblɑːks/
+  meaning_zh: 遇到任何障碍
+  usage_scene: 预判和跟踪问题
+  example: Let me know if you run into any roadblocks along the way.
+  difficulty: unified
+  tags: [delegation, management, office]
+
+- entry_key: assign
+  entry_type: word
+  text: assign
+  phonetic: /əˈsaɪn/
+  meaning_zh: 分配；指派
+  usage_scene: 给团队成员分配任务
+  example: I will assign the data collection task to Lisa.
+  difficulty: unified
+  tags: [delegation, management, office]
+
+- entry_key: delegate
+  entry_type: word
+  text: delegate
+  phonetic: /ˈdelɪɡeɪt/
+  meaning_zh: 授权；委派
+  usage_scene: 管理者将任务下放
+  example: A good manager knows when to delegate tasks to team members.
+  difficulty: unified
+  tags: [delegation, management, office]
+
+- entry_key: accountable
+  entry_type: word
+  text: accountable
+  phonetic: /əˈkaʊntəbəl/
+  meaning_zh: 负责的；有责任的
+  usage_scene: 明确责任归属
+  example: Each team member should be accountable for their assigned tasks.
+  difficulty: unified
+  tags: [delegation, management, office]
+
+- entry_key: workload
+  entry_type: word
+  text: workload
+  phonetic: /ˈwɜːrkloʊd/
+  meaning_zh: 工作量
+  usage_scene: 评估团队承载能力
+  example: We need to balance the workload across the team.
+  difficulty: unified
+  tags: [delegation, management, office]
+
+- entry_key: deadline-driven
+  entry_type: word
+  text: deadline-driven
+  phonetic: /ˈdedlaɪn ˈdrɪvən/
+  meaning_zh: 以截止日期为导向的
+  usage_scene: 描述任务紧急程度
+  example: This is a deadline-driven project, so we need to act fast.
+  difficulty: unified
+  tags: [delegation, management, office]
+
+# ---------- 主题 7: budget（预算讨论）----------
+
+- entry_key: proposed_budget
+  entry_type: chunk
+  text: proposed budget
+  phonetic: /prəˈpoʊzd ˈbʌdʒɪt/
+  meaning_zh: 拟议预算
+  usage_scene: 预算审议
+  example: Let us review the proposed budget for the next quarter.
+  difficulty: unified
+  tags: [budget, finance, office]
+
+- entry_key: return_on_investment
+  entry_type: chunk
+  text: return on investment
+  phonetic: /rɪˈtɜːrn ɒn ɪnˈvestmənt/
+  meaning_zh: 投资回报率（ROI）
+  usage_scene: 论证投入产出
+  example: What is the expected return on investment for this campaign?
+  difficulty: unified
+  tags: [budget, finance, office]
+
+- entry_key: cost_breakdown
+  entry_type: chunk
+  text: cost breakdown
+  phonetic: /kɑːst ˈbreɪkdaʊn/
+  meaning_zh: 成本明细
+  usage_scene: 拆分预算项目
+  example: Please prepare a detailed cost breakdown for the board meeting.
+  difficulty: unified
+  tags: [budget, finance, office]
+
+- entry_key: increase_in_spend
+  entry_type: chunk
+  text: increase in spend
+  phonetic: /ˈɪnkriːs ɪn spend/
+  meaning_zh: 支出增加
+  usage_scene: 说明预算上涨原因
+  example: The main increase in spend is due to the product launch.
+  difficulty: unified
+  tags: [budget, finance, office]
+
+- entry_key: estimate
+  entry_type: chunk
+  text: we estimate that
+  phonetic: /wiː ˈestɪmeɪt ðæt/
+  meaning_zh: 我们估计……
+  usage_scene: 预测收益或成本
+  example: We estimate a 20% increase in revenue based on market research.
+  difficulty: unified
+  tags: [budget, finance, office]
+
+- entry_key: expenditure
+  entry_type: word
+  text: expenditure
+  phonetic: /ɪkˈspendɪtʃər/
+  meaning_zh: 支出；花费
+  usage_scene: 财务报表、预算分析
+  example: Total expenditure for the project came in under budget.
+  difficulty: unified
+  tags: [budget, finance, office]
+
+- entry_key: revenue
+  entry_type: word
+  text: revenue
+  phonetic: /ˈrevənuː/
+  meaning_zh: 收入；营收
+  usage_scene: 讨论财务表现
+  example: Revenue from online sales has doubled this quarter.
+  difficulty: unified
+  tags: [budget, finance, office]
+
+- entry_key: overheads
+  entry_type: word
+  text: overheads
+  phonetic: /ˈoʊvərhɛdz/
+  meaning_zh: 运营开支；间接成本
+  usage_scene: 成本优化讨论
+  example: We need to reduce our overheads to stay competitive.
+  difficulty: unified
+  tags: [budget, finance, office]
+
+- entry_key: allocate
+  entry_type: word
+  text: allocate
+  phonetic: /ˈæləkeɪt/
+  meaning_zh: 分配（资源、预算）
+  usage_scene: 预算分配决策
+  example: We need to allocate resources more efficiently across departments.
+  difficulty: unified
+  tags: [budget, finance, office]
+
+- entry_key: profit_margin
+  entry_type: word
+  text: profit margin
+  phonetic: /ˈprɑːfɪt ˈmɑːrdʒɪn/
+  meaning_zh: 利润率
+  usage_scene: 财务分析
+  example: The profit margin on our premium products is around 35%.
+  difficulty: unified
+  tags: [budget, finance, office]
+
+# ---------- 主题 8: remote（远程协作）----------
+
+- entry_key: weekly_catch_up
+  entry_type: chunk
+  text: weekly catch-up call
+  phonetic: /ˈwiːkli ˈkætʃ ʌp kɔːl/
+  meaning_zh: 每周例行沟通电话
+  usage_scene: 安排定期线上会议
+  example: Let us set up a weekly catch-up call to stay connected.
+  difficulty: unified
+  tags: [remote, communication, office]
+
+- entry_key: on_the_same_page
+  entry_type: chunk
+  text: on the same page
+  phonetic: /ɒn ðə seɪm peɪdʒ/
+  meaning_zh: 信息同步；达成共识
+  usage_scene: 确保团队认知一致
+  example: We need to keep everyone on the same page during the transition.
+  difficulty: unified
+  tags: [remote, communication, office]
+
+- entry_key: come_prepared
+  entry_type: chunk
+  text: come prepared
+  phonetic: /kʌm prɪˈperd/
+  meaning_zh: 有准备地参加
+  usage_scene: 会前要求
+  example: Please come prepared with your weekly status updates.
+  difficulty: unified
+  tags: [remote, communication, office]
+
+- entry_key: share_the_agenda
+  entry_type: chunk
+  text: share the agenda in advance
+  phonetic: /ʃer ði əˈdʒendə ɪn ədˈvæns/
+  meaning_zh: 提前分享议程
+  usage_scene: 高效会议准备
+  example: Could you share the agenda in advance so everyone can prepare?
+  difficulty: unified
+  tags: [remote, communication, office]
+
+- entry_key: video_conferencing
+  entry_type: chunk
+  text: video conferencing tool
+  phonetic: /ˈvɪdioʊ ˈkɑːnfərənsɪŋ tuːl/
+  meaning_zh: 视频会议工具
+  usage_scene: 选择远程沟通平台
+  example: Let us use the video conferencing tool for the team standup.
+  difficulty: unified
+  tags: [remote, technology, office]
+
+- entry_key: remote
+  entry_type: word
+  text: remote
+  phonetic: /rɪˈmoʊt/
+  meaning_zh: 远程的
+  usage_scene: 远程办公模式
+  example: Our team has been working remotely since last year.
+  difficulty: unified
+  tags: [remote, hr, office]
+
+- entry_key: asynchronous
+  entry_type: word
+  text: asynchronous
+  phonetic: /eɪˈsɪŋkrənəs/
+  meaning_zh: 异步的
+  usage_scene: 不需要同时在线的沟通方式
+  example: Asynchronous communication works better for teams in different time zones.
+  difficulty: unified
+  tags: [remote, communication, office]
+
+- entry_key: time_zone
+  entry_type: word
+  text: time zone
+  phonetic: /taɪm zoʊn/
+  meaning_zh: 时区
+  usage_scene: 跨地区协作
+  example: We have team members across three different time zones.
+  difficulty: unified
+  tags: [remote, communication, office]
+
+- entry_key: bandwidth
+  entry_type: word
+  text: bandwidth
+  phonetic: /ˈbændwɪdθ/
+  meaning_zh: 网络带宽（引申为精力/时间）
+  usage_scene: 远程办公基础设施或工作量讨论
+  example: I do not have the bandwidth to take on another project right now.
+  difficulty: unified
+  tags: [remote, technology, office]
+
+- entry_key: standup
+  entry_type: word
+  text: standup
+  phonetic: /ˈstændʌp/
+  meaning_zh: 站会
+  usage_scene: 每日简短同步会议
+  example: Our daily standup is at 10 a.m. via video call.
+  difficulty: unified
+  tags: [remote, management, office]
+
+# ---------- 主题 9: performance（绩效反馈）----------
+
+- entry_key: share_some_feedback
+  entry_type: chunk
+  text: share some feedback
+  phonetic: /ʃer sʌm ˈfiːdbæk/
+  meaning_zh: 分享一些反馈
+  usage_scene: 开启绩效面谈
+  example: I wanted to share some feedback on your work this quarter.
+  difficulty: unified
+  tags: [performance, hr, office]
+
+- entry_key: exceed_expectations
+  entry_type: chunk
+  text: exceed expectations
+  phonetic: /ɪkˈsiːd ˌekspekˈteɪʃənz/
+  meaning_zh: 超出预期
+  usage_scene: 正面绩效评价
+  example: You exceeded expectations on the client project. Well done.
+  difficulty: unified
+  tags: [performance, hr, office]
+
+- entry_key: area_for_growth
+  entry_type: chunk
+  text: area for growth
+  phonetic: /ˈeriə fɔːr ɡroʊθ/
+  meaning_zh: 有提升空间的方面
+  usage_scene: 建设性反馈
+  example: One area for growth would be time management during the planning phase.
+  difficulty: unified
+  tags: [performance, hr, office]
+
+- entry_key: work_on_that
+  entry_type: chunk
+  text: work on that going forward
+  phonetic: /wɜːrk ɒn ðæt ˈɡoʊɪŋ ˈfɔːrwərd/
+  meaning_zh: 今后在这方面改进
+  usage_scene: 表达改进意愿
+  example: That is fair. I will work on that going forward.
+  difficulty: unified
+  tags: [performance, hr, office]
+
+- entry_key: appreciate_it
+  entry_type: chunk
+  text: I appreciate it
+  phonetic: /aɪ əˈpriːʃieɪt ɪt/
+  meaning_zh: 感谢你（的反馈）
+  usage_scene: 接受反馈时表达感谢
+  example: Thank you for the feedback. I really appreciate it.
+  difficulty: unified
+  tags: [performance, communication, office]
+
+- entry_key: appraisal
+  entry_type: word
+  text: appraisal
+  phonetic: /əˈpreɪzəl/
+  meaning_zh: 评估；绩效考核
+  usage_scene: 年度绩效面谈
+  example: Annual performance appraisals help identify training needs.
+  difficulty: unified
+  tags: [performance, hr, office]
+
+- entry_key: constructive
+  entry_type: word
+  text: constructive
+  phonetic: /kənˈstrʌktɪv/
+  meaning_zh: 建设性的
+  usage_scene: 描述反馈类型
+  example: The manager gave constructive feedback on the presentation.
+  difficulty: unified
+  tags: [performance, communication, office]
+
+- entry_key: promotion
+  entry_type: word
+  text: promotion
+  phonetic: /prəˈmoʊʃən/
+  meaning_zh: 晋升
+  usage_scene: 职业发展讨论
+  example: She was recommended for promotion after the performance review.
+  difficulty: unified
+  tags: [performance, hr, office]
+
+- entry_key: quarterly
+  entry_type: word
+  text: quarterly
+  phonetic: /ˈkwɔːrtərli/
+  meaning_zh: 季度的
+  usage_scene: 按季度进行评估
+  example: We conduct quarterly reviews to track employee progress.
+  difficulty: unified
+  tags: [performance, management, office]
+
+- entry_key: improvement
+  entry_type: word
+  text: improvement
+  phonetic: /ɪmˈpruːvmənt/
+  meaning_zh: 改进；提升
+  usage_scene: 描述需要提升的方面
+  example: There is room for improvement in how we handle client requests.
+  difficulty: unified
+  tags: [performance, management, office]
+
+# ---------- 主题 10: coordination（跨部门沟通）----------
+
+- entry_key: reach_out_to
+  entry_type: chunk
+  text: reach out to
+  phonetic: /riːtʃ aʊt tuː/
+  meaning_zh: 联系某人
+  usage_scene: 跨部门联系
+  example: I will reach out to the design team and see if they can help.
+  difficulty: unified
+  tags: [coordination, communication, office]
+
+- entry_key: detailed_brief
+  entry_type: chunk
+  text: detailed brief
+  phonetic: /dɪˈteɪld briːf/
+  meaning_zh: 详细的需求说明
+  usage_scene: 跨部门交接时提供清晰需求
+  example: Do you have a detailed brief ready for the design team?
+  difficulty: unified
+  tags: [coordination, management, office]
+
+- entry_key: stick_to_the_timeline
+  entry_type: chunk
+  text: stick to the timeline
+  phonetic: /stɪk tuː ðə ˈtaɪmlaɪn/
+  meaning_zh: 按时间节点推进
+  usage_scene: 督促协作方按时交付
+  example: Please make sure they stick to the timeline we agreed on.
+  difficulty: unified
+  tags: [coordination, management, office]
+
+- entry_key: joint_review
+  entry_type: chunk
+  text: joint review session
+  phonetic: /dʒɔɪnt rɪˈvjuː ˈseʃən/
+  meaning_zh: 联合评审会
+  usage_scene: 多部门一起检查成果
+  example: Should we set up a joint review session next week?
+  difficulty: unified
+  tags: [coordination, meeting, office]
+
+- entry_key: loop_in
+  entry_type: chunk
+  text: loop in
+  phonetic: /luːp ɪn/
+  meaning_zh: 把某人拉进来（让某人参与）
+  usage_scene: 让相关人员加入讨论
+  example: Let us loop in the marketing lead as well.
+  difficulty: unified
+  tags: [coordination, communication, office]
+
+- entry_key: collaborate
+  entry_type: word
+  text: collaborate
+  phonetic: /kəˈlæbəreɪt/
+  meaning_zh: 协作
+  usage_scene: 跨团队合作
+  example: We need to collaborate more closely with the product team.
+  difficulty: unified
+  tags: [coordination, management, office]
+
+- entry_key: stakeholder
+  entry_type: word
+  text: stakeholder
+  phonetic: /ˈsteɪkhoʊldər/
+  meaning_zh: 利益相关方
+  usage_scene: 涉及多方参与的项目
+  example: All stakeholders should be informed of the timeline changes.
+  difficulty: unified
+  tags: [coordination, management, office]
+
+- entry_key: input
+  entry_type: word
+  text: input
+  phonetic: /ˈɪnpʊt/
+  meaning_zh: 意见；建议
+  usage_scene: 征求其他部门的看法
+  example: We need the design team's input on the new brochure.
+  difficulty: unified
+  tags: [coordination, communication, office]
+
+- entry_key: consensus
+  entry_type: word
+  text: consensus
+  phonetic: /kənˈsensəs/
+  meaning_zh: 共识
+  usage_scene: 达成一致意见
+  example: We need to build consensus before moving forward.
+  difficulty: unified
+  tags: [coordination, management, office]
+
+- entry_key: deliverable
+  entry_type: word
+  text: deliverable
+  phonetic: /dɪˈlɪvərəbəl/
+  meaning_zh: 交付物
+  usage_scene: 明确跨部门协作的产出要求
+  example: The design team's deliverable is due by the end of this week.
+  difficulty: unified
+  tags: [coordination, management, office]

@@ -38,3 +38,166 @@
       prompt: 请用今天至少 2 个表达，写一句项目进度同步回复。
     - type: rewrite
       prompt: 把这句中文翻成更自然的英文：目前整体进展顺利，但我们遇到了一个阻塞项。
+
+- theme_key: leave_request
+  title: Requesting Time Off
+  scene: 请假/休假
+  opening: 学会用地道的英语表达请假需求，并礼貌地与上级沟通。
+  core_tags: [leave]
+  support_tags: [leave]
+  dialogue_template:
+    - "A: Hi Sarah, I was wondering if I could take next Monday off."
+    - "B: Sure. Is everything okay?"
+    - "A: Yes, I have a personal matter to attend to."
+    - "B: No problem. Could you make sure your tasks are covered before you leave?"
+    - "A: Of course. I will hand over the pending items to Jack."
+    - "B: Great. I will approve your request in the system."
+  task_templates:
+    - type: vocab_check
+      prompt: 从今天的表达中选 2 个，各写一个你在办公室会用到的完整句子。
+    - type: scenario_reply
+      prompt: 你需要请两天假参加朋友的婚礼，请用今天至少 2 个表达写一段请假说明。
+    - type: rewrite
+      prompt: 把这句中文翻成更自然的英文：我下周五想请一天假，可以吗？
+
+- theme_key: email_etiquette
+  title: Writing a Professional Email
+  scene: 邮件礼仪
+  opening: 学习商务邮件中的常用表达，写出更专业、更礼貌的英文邮件。
+  core_tags: [email]
+  support_tags: [email]
+  dialogue_template:
+    - "A: I need to write a follow-up email to the client. Any tips?"
+    - "B: Make sure you state the purpose clearly in the opening line."
+    - "A: Good point. Should I attach the proposal as well?"
+    - "B: Yes, and please CC the project manager so everyone stays in the loop."
+    - "A: Got it. I will also add a call to action at the end."
+  task_templates:
+    - type: vocab_check
+      prompt: 请用今天的 3 个表达，各造一个用在邮件中的句子。
+    - type: scenario_reply
+      prompt: 请用今天至少 2 个表达，写一封简短的英文邮件催促客户确认方案。
+    - type: rewrite
+      prompt: 把这封中式英文邮件改得更专业：Dear Sir, I want to tell you we finish the report. Please check it.
+
+- theme_key: handling_complaints
+  title: Handling a Customer Complaint
+  scene: 客户投诉处理
+  opening: 学会在面对客户投诉时保持专业、表达歉意并提出解决方案。
+  core_tags: [complaint]
+  support_tags: [complaint]
+  dialogue_template:
+    - "Customer: I have been waiting for two weeks and still have not received the order."
+    - "A: I sincerely apologize for the delay. Let me look into this right away."
+    - "Customer: This is really inconvenient for our team."
+    - "A: I completely understand your frustration. I will escalate this and get back to you by end of day."
+    - "Customer: I hope this can be resolved soon."
+    - "A: I will make sure it is. You have my word."
+  task_templates:
+    - type: vocab_check
+      prompt: 选今天的 2 个核心表达，各写一句你在处理投诉时会用到的回复。
+    - type: scenario_reply
+      prompt: 客户抱怨产品质量有问题，请用今天至少 2 个表达写一段专业回复。
+    - type: rewrite
+      prompt: 把这句中文翻成更专业的英文：不好意思让你等了，我去查一下然后尽快告诉你。
+
+- theme_key: delegating_tasks
+  title: Delegating Tasks to the Team
+  scene: 团队分工
+  opening: 学会用英语清晰地分配任务、设定优先级和期限。
+  core_tags: [delegation]
+  support_tags: [delegation]
+  dialogue_template:
+    - "A: We need to get the quarterly report done by Friday. Can you take the lead on this?"
+    - "B: Sure. Could you walk me through the key deliverables?"
+    - "A: The financial summary and the market analysis are the top priorities."
+    - "B: Got it. I will assign the data collection to Lisa and handle the analysis myself."
+    - "A: Perfect. Let me know if you run into any roadblocks."
+  task_templates:
+    - type: vocab_check
+      prompt: 从今天的表达中选 3 个，各写一个你在分配任务时会说的句子。
+    - type: scenario_reply
+      prompt: 下周有产品发布会需要准备，请用今天至少 2 个表达给团队写一段分工说明。
+    - type: rewrite
+      prompt: 把这句中文翻成更自然的英文：这个任务比较急，你先做这个，其他的事情可以放一放。
+
+- theme_key: budget_discussion
+  title: Discussing the Budget
+  scene: 预算讨论
+  opening: 学会在预算会议中用英语说明成本、申请资源和论证投入产出。
+  core_tags: [budget]
+  support_tags: [budget]
+  dialogue_template:
+    - "A: Let us review the proposed budget for Q3."
+    - "B: The main increase is in the marketing spend. We are planning a product launch."
+    - "A: What is the expected return on investment?"
+    - "B: We estimate a 20% increase in revenue based on market research."
+    - "A: That sounds reasonable. Please prepare a cost breakdown for the next meeting."
+  task_templates:
+    - type: vocab_check
+      prompt: 选今天的 3 个表达，各写一句在预算讨论中会用到的句子。
+    - type: scenario_reply
+      prompt: 你需要向老板申请增加培训预算，请用今天至少 2 个表达写一段说明。
+    - type: rewrite
+      prompt: 把这句中文翻成更专业的英文：这个项目的成本太高了，我们需要减少预算。
+
+- theme_key: remote_collaboration
+  title: Working Remotely with a Team
+  scene: 远程协作
+  opening: 学会在远程办公中用英语进行有效沟通、安排线上会议和同步工作进展。
+  core_tags: [remote]
+  support_tags: [remote]
+  dialogue_template:
+    - "A: Let us set up a weekly catch-up call to keep everyone on the same page."
+    - "B: Good idea. What platform should we use?"
+    - "A: Let us use the video conferencing tool. I will send the invite."
+    - "B: Should we share the agenda in advance?"
+    - "A: Yes, please. That way everyone can come prepared."
+  task_templates:
+    - type: vocab_check
+      prompt: 从今天的表达中选 2 个，各写一个你在远程协作中会用到的完整句子。
+    - type: scenario_reply
+      prompt: 你和海外同事有 8 小时时差，请用今天至少 2 个表达写一段沟通安排。
+    - type: rewrite
+      prompt: 把这句中文翻成更自然的英文：我们先开个简短的线上会议把这件事对齐一下。
+
+- theme_key: performance_review
+  title: Giving Performance Feedback
+  scene: 绩效反馈
+  opening: 学会在一对一沟通中用英语给出建设性反馈和职业发展建议。
+  core_tags: [performance]
+  support_tags: [performance]
+  dialogue_template:
+    - "A: I wanted to share some feedback on your work this quarter."
+    - "B: Sure, I appreciate it."
+    - "A: You exceeded expectations on the client project. Well done."
+    - "B: Thank you. Is there anything I should improve?"
+    - "A: One area for growth would be time management during the planning phase."
+    - "B: That is fair. I will work on that going forward."
+  task_templates:
+    - type: vocab_check
+      prompt: 从今天的表达中选 3 个，各造一句在绩效面谈中会用到的句子。
+    - type: scenario_reply
+      prompt: 你的下属最近经常迟到，请用今天至少 2 个表达写一段建设性反馈。
+    - type: rewrite
+      prompt: 把这句中文翻成更自然的英文：你这个季度做得不错，但还有提升空间。
+
+- theme_key: cross_department
+  title: Coordinating Across Departments
+  scene: 跨部门沟通
+  opening: 学会在跨部门协作中用英语明确需求、协调资源和推进共识。
+  core_tags: [coordination]
+  support_tags: [coordination]
+  dialogue_template:
+    - "A: We need the design team's input on the new brochure by Wednesday."
+    - "B: I will reach out to them. Do you have a detailed brief ready?"
+    - "A: Yes, I will share it after this meeting. Please make sure they stick to the timeline."
+    - "B: Will do. Should we set up a joint review session next week?"
+    - "A: That would be great. Let us loop in the marketing lead as well."
+  task_templates:
+    - type: vocab_check
+      prompt: 从今天的表达中选 2 个，各写一个在跨部门沟通中会用到的句子。
+    - type: scenario_reply
+      prompt: 技术团队需要市场部提供客户数据，请用今天至少 2 个表达写一段跨部门协调消息。
+    - type: rewrite
+      prompt: 把这句中文翻成更自然的英文：这件事需要三个部门一起配合，我们拉个会对齐一下。
