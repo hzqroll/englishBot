@@ -685,3 +685,41 @@ async def cache_status(request: Request):
             ],
         }
     return _ok({"groups": result, "total_groups": len(result)})
+
+
+@router.post("/api/test/trigger/{job_name}")
+async def test_trigger(job_name: str, force_rerun: str | None = Form(None)):
+    """调试接口：无鉴权触发定时任务。"""
+    from src.plugins.scheduler import (
+        daily_error_digest_job,
+        daily_friends_job,
+        daily_progress_job,
+        daily_push_job,
+        nightly_backup_job,
+        weekly_quiz_job,
+        weekly_report_job,
+    )
+
+    job_map = {
+        "daily_push": daily_push_job,
+        "daily_error_digest": daily_error_digest_job,
+        "daily_progress": daily_progress_job,
+        "weekly_report": weekly_report_job,
+        "weekly_quiz": weekly_quiz_job,
+        "nightly_backup": nightly_backup_job,
+        "daily_friends": daily_friends_job,
+    }
+    job = job_map.get(job_name)
+    if job is None:
+        return _err(f"未知任务: {job_name}，可选: {', '.join(job_map)}")
+    force_run = bool(force_rerun)
+    try:
+        if job_name in {"daily_error_digest", "daily_progress", "weekly_report", "weekly_quiz"}:
+            await job(target_date=None, force_run=force_run)
+        elif job_name in {"daily_push", "daily_friends"}:
+            await job(force_run=force_run)
+        else:
+            await job()
+        return _ok(reply=f"{job_name} triggered")
+    except Exception as exc:
+        return _err(f"{exc.__class__.__name__}: {exc}")
