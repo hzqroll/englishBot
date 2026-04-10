@@ -28,27 +28,26 @@ ssh ubuntu@110.40.137.26 "cd /home/ubuntu/englishBot && find src -name '__pycach
 
 ## 架构概览
 
-基于 Clean Architecture 的 NoneBot2 英语学习机器人，支持 QQ 和飞书双渠道，分为四层：
+基于 Clean Architecture 的英语学习飞书机器人，分为四层：
 
-- **`src/plugins/`** — NoneBot2 插件，消息与调度入口（`commands.py` 固定命令 priority=5、`at_message.py` @机器人+分析指令 priority=10、`passive_group_observer.py` 被动观察 priority=30、`scheduler.py` 定时任务）
+- **`src/plugins/`** — NoneBot2 插件，消息与调度入口（`command_handlers.py` 可复用命令逻辑、`scheduler.py` 定时任务、`command_catalog.py` 命令路由注册）
 - **`src/application/`** — 用例层，编排业务流程（MessageUseCase、LearningUseCase、QuizUseCase、ReportUseCase、ConversationUseCase）
 - **`src/domain/`** — 领域层，纯业务规则：实体（entities/）、领域服务（services/）、值对象（value_objects/）
-- **`src/infrastructure/`** — 基础设施层：数据库（db/）、外部服务（providers/）、配置（settings/）、鉴权（auth/）、缓存（cache/）、消息渲染（messaging/）、渠道适配（channels/）
+- **`src/infrastructure/`** — 基础设施层：数据库（db/）、外部服务（providers/）、配置（settings/）、鉴权（auth/）、缓存（cache/）、渠道适配（channels/）
 - **`src/admin/`** — FastAPI + Jinja2 管理后台
 
-### 多渠道架构
+### 飞书渠道架构
 
-系统通过 `ChannelAdapter` 抽象（`src/infrastructure/channels/base.py`）支持多平台：
+系统通过 `ChannelAdapter` 抽象（`src/infrastructure/channels/base.py`）接入飞书平台：
 
-- **OneBotChannel**（`channels/onebot.py`）— QQ 渠道，通过 NoneBot2 OneBot v11 适配器收发消息
-- **FeishuChannel**（`channels/feishu.py`）— 飞书渠道，通过 lark-oapi SDK 发送消息和拉取历史
+- **FeishuChannel**（`channels/feishu.py`）— 飞书消息渠道，通过 lark-oapi SDK 发送消息和拉取历史，支持原生 JSON 互动卡片和 CardKit 流式响应
 - **FeishuBot**（`channels/feishu_bot.py`）— 飞书 WebSocket 入口，独立守护线程接收事件
 
-渠道注册在 `ServiceContainer.channels: dict[str, ChannelAdapter]` 中。调度器通过 `group_id.startswith("oc_")` 判断飞书群，其余走 QQ 渠道。
+渠道注册在 `ServiceContainer.channels: dict[str, ChannelAdapter]` 中。
 
 飞书渠道的特殊处理：
 - 回调在飞书 WS 线程中执行，通过 `asyncio.run_coroutine_threadsafe` 提交到 NoneBot2 主事件循环
-- 卡片渲染使用飞书互动卡片 JSON（`msg_type: "interactive"`），不需要 Pillow
+- 卡片渲染使用飞书互动卡片 JSON（`msg_type: "interactive"`），支持 CardKit 流式输出
 - 消息历史通过 `ListMessageRequest` API 拉取
 - SDK 数据模型使用 `message_type`（非 `msg_type`）
 - 消息路由：固定命令走 `handle_fixed_command_text`，分析指令和 @机器人 走 `message_usecase.handle_at_message`
@@ -63,8 +62,7 @@ ssh ubuntu@110.40.137.26 "cd /home/ubuntu/englishBot && find src -name '__pycach
 ### Provider 模式
 
 外部服务均抽象为 Provider：
-- `TencentTranslateProvider` — 腾讯云翻译
-- `OpenAICompatibleProvider` — OpenAI 兼容 LLM（纠错、反馈、测验、周报）
+- `OpenAICompatibleProvider` — OpenAI 兼容 LLM（纠错、反馈、测验、周报、翻译）
 - `TedContentProvider` / `StaticCurriculumProvider` — TED RSS 内容抓取，不可用时回退到内置短文
 
 未配置 API Key 时 Provider 走降级逻辑返回 mock 结果。
@@ -83,20 +81,17 @@ SQLite + SQLAlchemy 2.0 async（aiosqlite）。ORM 模型在 `src/infrastructure
 
 ### 消息流程
 
-**QQ 渠道**：QQ 群消息 → NapCat → OneBot v11 → NoneBot2 → `plugins/at_message.py` 或 `plugins/commands.py` → UseCase → 回复
-
 **飞书渠道**：飞书群消息 → WebSocket → `FeishuBot._on_message()` → `_dispatch()` → UseCase → `FeishuChannel.send_text()` / `send_envelope()`
 
-**调度推送**：`scheduler.py` 定时任务 → `_send_group_envelope()` → 根据 `group_id` 前缀选择渠道发送
+**调度推送**：`scheduler.py` 定时任务 → `_send_group_envelope()` → 通过 FeishuChannel 发送
 
 ### 消息渲染与卡片
 
 UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`），携带纯文本和可选的 `CardDocument` 结构化卡片数据。
 
-- **QQ 渠道**：`MessageDeliveryService`（`src/infrastructure/messaging/renderers.py`）根据 `render_mode` 选择 `PlainTextRenderer`（CQ 码）或 `ImageCardRenderer`（Pillow 生成 PNG）
-- **飞书渠道**：`FeishuChannel._render_card_document()` 将 `CardDocument` 渲染为飞书互动卡片 JSON
+- **飞书渠道**：`FeishuChannel._render_card_document()` 将 `CardDocument` 渲染为飞书互动卡片 JSON，支持 CardKit 流式卡片更新
 
-`CardDocument` 是结构化的卡片文档模型（标题、副标题、`CardSection` 列表、页脚、主题），由 UseCase 构建，各渠道自行渲染。
+`CardDocument` 是结构化的卡片文档模型（标题、副标题、`CardSection` 列表、页脚、主题），由 UseCase 构建，FeishuChannel 自行渲染。
 
 ### 定时任务
 
@@ -109,7 +104,7 @@ UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`
 6. **nightly_backup** — 数据库备份（每日 2:00）
 7. **daily_friends** — 每日 Friends 对话推送（默认 9:00）
 
-所有任务通过 `acquire_job_lock()` 防止并发执行，管理后台 `/admin/triggers/{job_name}` 支持手动触发。所有任务同时推送 QQ 群和飞书群。
+所有任务通过 `acquire_job_lock()` 防止并发执行，管理后台 `/admin/triggers/{job_name}` 支持手动触发。所有任务推送到飞书群。
 
 ### 错误分类体系
 
@@ -123,12 +118,12 @@ UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`
 - **间隔复习**（`ReviewScheduler`）：1→2→4→8... 天倍增间隔
 - **分级系统**（`LevelService`）：基于活跃度 + 测验分数的 beginner/intermediate 两级
 - **上下文缓存**（`ContextStore`）：LRU 缓存，15 分钟 TTL
-- **命令路由**（`command_catalog.py` + `message_intents.py`）：固定命令（`is_fixed_command_text`）走 `group_command`（priority=5），`大模型润色` / `分析最近聊天内容`（`is_analysis_control_text`）走 `at_message`（priority=10）统一处理
+- **命令路由**（`command_catalog.py` + `message_intents.py`）：固定命令（`is_fixed_command_text`）走 `group_command`，`大模型润色` / `分析最近聊天内容`（`is_analysis_control_text`）走 `at_message` 统一处理
 
 ### 管理后台
 
 `src/admin/routes.py` 中 FastAPI 路由，Session 认证。关键页面：
-- `/admin/debug` — 无需 QQ 即可测试翻译/纠错流程
+- `/admin/debug` — 测试翻译/纠错/LLM 流程
 - `/admin/cards` — 生成任务/周测/周报的卡片预览
 - `/admin/settings` — 运行时配置覆盖，修改后自动刷新调度器
 - `/admin/triggers/{job_name}` — 手动触发定时任务
@@ -143,6 +138,5 @@ UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`
 - `alembic/` 目录已初始化但当前使用启动时 auto-create，非强制迁移
 - Provider 缺少配置时走降级而非报错
 - 测试用轻量 stub 类注入依赖，数据库测试用 `tmp_path` 临时 SQLite，不依赖 mock 框架
-- Pillow 用于 QQ 渠道图片卡片渲染，飞书渠道不需要图片渲染
 - 测试飞书功能，使用测试群ID：FEISHU_TEST_GROUP
-- ubuntu@110.40.137.26 可以免密登录，我已经配置了私钥在远程服务器上面
+- 远程服务器：ubuntu@110.40.137.26 可以免密登录，我已经配置了私钥在远程服务器上面

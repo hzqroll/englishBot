@@ -31,15 +31,15 @@ class ReportUseCase:
     async def build_weekly_report(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         target_date: date | None = None,
     ) -> str:
         return (
             await self.build_weekly_report_envelope(
-                qq_group_id=qq_group_id,
-                qq_user_id=qq_user_id,
+                chat_id=chat_id,
+                open_id=open_id,
                 nickname=nickname,
                 target_date=target_date,
             )
@@ -48,13 +48,13 @@ class ReportUseCase:
     async def build_weekly_report_envelope(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         target_date: date | None = None,
     ) -> MessageEnvelope:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
 
         target_date = target_date or datetime.now().astimezone().date()
         week_key = target_date.strftime("%G-W%V")
@@ -181,13 +181,13 @@ class ReportUseCase:
     async def build_daily_error_digest_envelope(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         target_date: date | None = None,
     ) -> MessageEnvelope | None:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
 
         target_date = target_date or datetime.now().astimezone().date()
         digest = await self._learning_repo.get_daily_error_digest(
@@ -266,13 +266,13 @@ class ReportUseCase:
     async def build_daily_progress_envelope(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         target_date: date | None = None,
     ) -> MessageEnvelope | None:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
 
         target_date = target_date or datetime.now().astimezone().date()
         stats = await self._learning_repo.get_daily_progress_stats(

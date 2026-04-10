@@ -7,7 +7,7 @@ from datetime import date, datetime
 @dataclass(slots=True)
 class UserProfile:
     id: int
-    qq_user_id: str
+    open_id: str
     nickname: str
     joined_at: datetime
     last_active_at: datetime

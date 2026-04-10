@@ -173,14 +173,22 @@ class FeishuChannel(ChannelAdapter):
     def _create_streaming_card_impl(self, chat_id: str, title: str) -> str | None:
         card_data = json.dumps({
             "schema": "2.0",
-            "config": {"update_multi": True},
+            "config": {
+                "update_multi": True,
+                "streaming_mode": True,
+                "summary": {"content": ""},
+                "streaming_config": {
+                    "print_frequency_ms": {"default": 50},
+                    "print_step": {"default": 1},
+                    "print_strategy": "fast",
+                },
+            },
             "header": {
                 "title": {"tag": "plain_text", "content": title},
                 "template": "blue",
             },
             "body": {
-                "direction": "vertical",
-                "elements": [{"tag": "markdown", "content": "🤔 正在思考..."}],
+                "elements": [{"tag": "markdown", "content": "🤔 正在思考...", "element_id": "streaming_text"}],
             },
         })
         card_request = (
@@ -207,7 +215,7 @@ class FeishuChannel(ChannelAdapter):
                 CreateMessageRequestBody.builder()
                 .receive_id(chat_id)
                 .msg_type("interactive")
-                .content(json.dumps({"card_id": card_id}))
+                .content(json.dumps({"type": "card", "data": {"card_id": card_id}}))
                 .build()
             )
             .build()
@@ -237,8 +245,7 @@ class FeishuChannel(ChannelAdapter):
                     "template": "blue",
                 },
                 "body": {
-                    "direction": "vertical",
-                    "elements": [{"tag": "markdown", "content": content}],
+                    "elements": [{"tag": "markdown", "content": content, "element_id": "streaming_text"}],
                 },
             })
             request = (
@@ -279,9 +286,7 @@ class FeishuChannel(ChannelAdapter):
                     "template": "blue",
                 },
                 "body": {
-                    "direction": "vertical",
-                    "padding": "12px 12px 12px 12px",
-                    "elements": elements or [{"tag": "markdown", "content": reply}],
+                    "elements": elements or [{"tag": "markdown", "content": reply, "element_id": "streaming_text"}],
                 },
             })
             request = (

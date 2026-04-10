@@ -57,9 +57,9 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
     nickname = "Rainbow"
     await learning_usecase.enroll(
         EnrollmentContext(
-            qq_group_id=group_id,
+            chat_id=group_id,
             group_name="英语学习群",
-            qq_user_id=user_id,
+            open_id=user_id,
             nickname=nickname,
         )
     )
@@ -69,7 +69,7 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
     today = datetime.now().astimezone().date()
     yesterday = today.fromordinal(today.toordinal() - 1)
 
-    await learning_usecase.build_today_lesson(qq_group_id=group_id, biz_date=yesterday)
+    await learning_usecase.build_today_lesson(chat_id=group_id, biz_date=yesterday)
     yesterday_event = await learning_repo.create_message_event(
         raw_event_id="yesterday-correction",
         group_id=group.id,
@@ -111,7 +111,7 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
         created_at=datetime.combine(yesterday, datetime.min.time(), tzinfo=UTC),
     )
 
-    await learning_usecase.build_today_lesson(qq_group_id=group_id, biz_date=today)
+    await learning_usecase.build_today_lesson(chat_id=group_id, biz_date=today)
     today_lesson = await learning_repo.get_today_lesson_detail(group_id=group.id, biz_date=today)
     assert today_lesson is not None
     lesson, _ = today_lesson
@@ -175,8 +175,8 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
     )
 
     envelope = await report_usecase.build_daily_progress_envelope(
-        qq_group_id=group_id,
-        qq_user_id=user_id,
+        chat_id=group_id,
+        open_id=user_id,
         nickname=nickname,
         target_date=today,
     )
@@ -271,8 +271,8 @@ async def test_daily_progress_uses_passive_conversation_activity(tmp_path):
     )
 
     envelope = await report_usecase.build_daily_progress_envelope(
-        qq_group_id="204257012",
-        qq_user_id="472583006",
+        chat_id="204257012",
+        open_id="472583006",
         nickname="Rainbow",
         target_date=today,
     )

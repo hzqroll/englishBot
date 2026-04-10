@@ -2,33 +2,11 @@ from __future__ import annotations
 
 import re
 
-from nonebot import on_message
-from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent
-from nonebot.rule import Rule
-
 from src.application.conversation_usecases import ConversationContext
 from src.application.learning_usecases import EnrollmentContext
 from src.domain.value_objects.messaging import MessageEnvelope
 from src.infrastructure.settings.container import ServiceContainer, get_or_init_container
-from src.plugins.command_catalog import is_fixed_command_text, match_fixed_command, render_help_text
-
-
-def _get_identity(event: GroupMessageEvent) -> tuple[str, str]:
-    return str(event.user_id), event.sender.card or event.sender.nickname or ""
-
-
-def _command_text(event: GroupMessageEvent) -> str:
-    return event.get_plaintext().strip()
-
-
-def _matches_learning_command(event: Event) -> bool:
-    if not isinstance(event, GroupMessageEvent):
-        return False
-    text = _command_text(event)
-    return is_fixed_command_text(text)
-
-
-group_command = on_message(rule=Rule(_matches_learning_command), priority=5, block=True)
+from src.plugins.command_catalog import match_fixed_command, render_help_text
 
 
 def _to_envelope(message: str | MessageEnvelope) -> MessageEnvelope:
@@ -49,9 +27,9 @@ async def _handle_enroll(
         return "当前群未启用学习功能。"
     return await container.learning_usecase.enroll(
         EnrollmentContext(
-            qq_group_id=group_id,
+            chat_id=group_id,
             group_name=group_name,
-            qq_user_id=user_id,
+            open_id=user_id,
             nickname=nickname,
         )
     )
@@ -65,8 +43,8 @@ async def _handle_today_task(
     nickname: str,
 ) -> MessageEnvelope:
     return await container.learning_usecase.get_today_task_envelope(
-        qq_group_id=group_id,
-        qq_user_id=user_id,
+        chat_id=group_id,
+        open_id=user_id,
         nickname=nickname,
     )
 
@@ -86,8 +64,8 @@ async def _handle_submit_task(
     if not task_id_text.isdigit():
         return "任务 ID 必须是数字。"
     return await container.learning_usecase.submit_task(
-        qq_group_id=group_id,
-        qq_user_id=user_id,
+        chat_id=group_id,
+        open_id=user_id,
         nickname=nickname,
         task_id=int(task_id_text),
         content=content,
@@ -102,8 +80,8 @@ async def _handle_review_now(
     nickname: str,
 ) -> str:
     return await container.learning_usecase.review_now(
-        qq_group_id=group_id,
-        qq_user_id=user_id,
+        chat_id=group_id,
+        open_id=user_id,
         nickname=nickname,
         limit=container.runtime_config.daily_review_insert_count(),
     )
@@ -117,8 +95,8 @@ async def _handle_user_level(
     nickname: str,
 ) -> str:
     return await container.learning_usecase.refresh_user_level(
-        qq_group_id=group_id,
-        qq_user_id=user_id,
+        chat_id=group_id,
+        open_id=user_id,
         nickname=nickname,
     )
 
@@ -131,8 +109,8 @@ async def _handle_weekly_quiz(
     nickname: str,
 ) -> MessageEnvelope:
     return await container.quiz_usecase.start_weekly_quiz_envelope(
-        qq_group_id=group_id,
-        qq_user_id=user_id,
+        chat_id=group_id,
+        open_id=user_id,
         nickname=nickname,
     )
 
@@ -160,8 +138,8 @@ async def _handle_submit_quiz(
     if not answers:
         return "格式示例：答题 10 1:A 2:B 3:C"
     return await container.quiz_usecase.submit_weekly_quiz(
-        qq_group_id=group_id,
-        qq_user_id=user_id,
+        chat_id=group_id,
+        open_id=user_id,
         nickname=nickname,
         session_id=session_id,
         answers=answers,
@@ -176,8 +154,8 @@ async def _handle_weekly_report(
     nickname: str,
 ) -> MessageEnvelope:
     return await container.report_usecase.build_weekly_report_envelope(
-        qq_group_id=group_id,
-        qq_user_id=user_id,
+        chat_id=group_id,
+        open_id=user_id,
         nickname=nickname,
     )
 
@@ -271,27 +249,3 @@ async def handle_fixed_command_text(
     else:
         message = "暂不支持这个命令。"
     return _to_envelope(message)
-
-
-@group_command.handle()
-async def handle_group_command(bot: Bot, event: GroupMessageEvent) -> None:
-    container = await get_or_init_container()
-    if not container.runtime_config.is_qq_enabled():
-        return
-    text = _command_text(event)
-    qq_user_id, nickname = _get_identity(event)
-    envelope = await handle_fixed_command_text(
-        group_id=str(event.group_id),
-        group_name="",
-        user_id=qq_user_id,
-        nickname=nickname,
-        text=text,
-        raw_event_id=str(event.message_id),
-        container=container,
-    )
-    await container.message_delivery_service.reply_group_envelope(
-        bot=bot,
-        group_id=str(event.group_id),
-        envelope=envelope,
-    )
-    await group_command.finish()

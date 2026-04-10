@@ -12,7 +12,7 @@ class User(Base, TimestampMixin):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    qq_user_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    open_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     nickname: Mapped[str] = mapped_column(String(128), default="")
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
@@ -22,10 +22,10 @@ class Group(Base, TimestampMixin):
     __tablename__ = "groups"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    qq_group_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    chat_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(128), default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    platform: Mapped[str] = mapped_column(String(32), default="onebot")
+    platform: Mapped[str] = mapped_column(String(32), default="feishu")
 
 
 class Enrollment(Base, TimestampMixin):
@@ -189,7 +189,7 @@ class DailyLesson(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(255), default="")
     package_snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="published")
-    channel: Mapped[str] = mapped_column(String(32), default="onebot")
+    channel: Mapped[str] = mapped_column(String(32), default="feishu")
     push_status: Mapped[str] = mapped_column(String(32), default="pending")
     pushed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     summary_text: Mapped[str] = mapped_column(Text, default="")
@@ -378,7 +378,7 @@ class GroupConfig(Base, TimestampMixin):
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
     key: Mapped[str] = mapped_column(String(128))
     value: Mapped[str] = mapped_column(Text)
-    channel: Mapped[str] = mapped_column(String(32), default="onebot")
+    channel: Mapped[str] = mapped_column(String(32), default="feishu")
 
 
 class AdminUser(Base, TimestampMixin):

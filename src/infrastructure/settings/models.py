@@ -14,21 +14,15 @@ class AppRuntimeSettings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "English Learning QQ Bot"
+    app_name: str = "English Learning Feishu Bot"
     env: str = "development"
     host: str = "0.0.0.0"
     port: int = 8003
     secret_key: str = "replace-me"
-    access_token: str = ""
     database_url: str = "sqlite+aiosqlite:///./data/english_bot.sqlite3"
     config_path: str = "./config.yaml"
     admin_username: str = "admin"
     admin_password: str = "admin123"
-
-    tencent_translate_secret_id: str = ""
-    tencent_translate_secret_key: str = ""
-    tencent_translate_region: str = "ap-beijing"
-    tencent_translate_endpoint: str = "tmt.tencentcloudapi.com"
 
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
@@ -36,13 +30,6 @@ class AppRuntimeSettings(BaseSettings):
 
     feishu_app_id: str = ""
     feishu_app_secret: str = ""
-
-
-class BotSettings(BaseModel):
-    enabled: bool = False
-    enabled_group_ids: list[str] = Field(default_factory=list)
-    admin_group_ids: list[str] = Field(default_factory=list)
-    context_ttl_minutes: int = 15
 
 
 class SchedulerSettings(BaseModel):
@@ -82,13 +69,6 @@ class AdminUiSettings(BaseModel):
     enable_http_login_warning: bool = True
 
 
-class MessageSettings(BaseModel):
-    render_mode: str = "image_card"
-    enable_task_cards: bool = True
-    card_fallback_to_text: bool = True
-    group_dialogue_trigger_min_sentences: int = 10
-
-
 class FeishuDocsSettings(BaseModel):
     enabled: bool = False
     folder_name: str = "englishImprovePlan"
@@ -98,6 +78,7 @@ class FeishuDocsSettings(BaseModel):
 class FeishuSettings(BaseModel):
     enabled: bool = True
     enabled_group_ids: list[str] = Field(default_factory=list)
+    context_ttl_minutes: int = 15
     docs: FeishuDocsSettings = Field(default_factory=FeishuDocsSettings)
 
 
@@ -158,12 +139,10 @@ class PromptsSettings(BaseModel):
 
 
 class StaticConfig(BaseModel):
-    bot: BotSettings = Field(default_factory=BotSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     content: ContentSettings = Field(default_factory=ContentSettings)
     learning: LearningSettings = Field(default_factory=LearningSettings)
     admin: AdminUiSettings = Field(default_factory=AdminUiSettings)
-    message: MessageSettings = Field(default_factory=MessageSettings)
     feishu: FeishuSettings = Field(default_factory=FeishuSettings)
     friends: FriendsSettings = Field(default_factory=FriendsSettings)
     prompts: PromptsSettings = Field(default_factory=PromptsSettings)

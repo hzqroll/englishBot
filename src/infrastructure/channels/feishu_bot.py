@@ -16,7 +16,7 @@ from src.application.message_usecases import MessageCommandContext
 from src.infrastructure.channels.feishu import FeishuChannel
 from src.infrastructure.settings.container import get_container
 from src.plugins.command_catalog import is_fixed_command_text
-from src.plugins.commands import handle_fixed_command_text
+from src.plugins.command_handlers import handle_fixed_command_text
 
 logger = logging.getLogger(__name__)
 
@@ -157,12 +157,11 @@ class FeishuBot:
             card_id: str | None = None
             sequence = 0
             last_update_time = 0.0
+            pending_update = False
 
             def _on_chunk(accumulated: str) -> None:
-                nonlocal card_id, sequence, last_update_time
+                nonlocal card_id, sequence, last_update_time, pending_update
                 now = time.monotonic()
-                if now - last_update_time < 0.2:  # throttle ~5 updates/sec
-                    return
                 if card_id is None:
                     # Lazy card creation — only when first chunk arrives
                     try:
@@ -174,8 +173,12 @@ class FeishuBot:
                         return
                 if card_id is None:
                     return
+                pending_update = True
+                if now - last_update_time < 0.15:  # batch updates, ~7/sec
+                    return
                 sequence += 1
                 last_update_time = now
+                pending_update = False
                 try:
                     channel.update_streaming_card_sync(card_id, accumulated, sequence)
                 except Exception:
@@ -194,6 +197,12 @@ class FeishuBot:
             )
 
             if card_id is not None:
+                if pending_update:
+                    sequence += 1
+                    try:
+                        channel.update_streaming_card_sync(card_id, reply, sequence)
+                    except Exception:
+                        pass
                 sequence += 1
                 try:
                     await channel.finalize_streaming_card(card_id, reply, sequence)

@@ -24,12 +24,10 @@ from src.infrastructure.docs.feishu_docs_client import FeishuDocsClient
 from src.infrastructure.docs.feishu_docs_service import FeishuDocsService
 from src.infrastructure.docs.repository import FeishuDocsRepository
 from src.infrastructure.channels.feishu import FeishuChannel
-from src.infrastructure.channels.onebot import OneBotChannel
 from src.infrastructure.db.repositories.admin import AdminRepository
 from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
 from src.infrastructure.db.session import create_engine, create_session_factory, init_db
-from src.infrastructure.messaging.renderers import ImageCardRenderer, MessageDeliveryService, PlainTextRenderer
 from src.infrastructure.providers.curriculum_static import StaticCurriculumProvider
 from src.infrastructure.providers.english_language_tool import LanguageToolEnglishProvider
 from src.infrastructure.providers.friends_transcript import FriendsTranscriptProvider
@@ -53,9 +51,6 @@ class ServiceContainer:
     runtime_config: RuntimeConfigService
     context_store: ContextStore
     group_dialogue_store: GroupDialogueStore
-    plain_text_renderer: PlainTextRenderer
-    image_card_renderer: ImageCardRenderer
-    message_delivery_service: MessageDeliveryService
     conversation_usecase: ConversationUseCase
     message_usecase: MessageUseCase
     learning_usecase: LearningUseCase
@@ -102,19 +97,12 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
     )
     runtime_config = RuntimeConfigService(settings=settings, learning_repo=learning_repo, admin_repo=admin_repo)
     await runtime_config.refresh()
-    context_store = ContextStore(ttl_minutes=settings.static.bot.context_ttl_minutes)
+    context_store = ContextStore(ttl_minutes=settings.static.feishu.context_ttl_minutes)
     group_dialogue_store = GroupDialogueStore()
     conversation_analysis_service = ConversationAnalysisService()
     level_service = LevelService()
     error_aggregator = ErrorAggregator()
     review_scheduler = ReviewScheduler()
-    plain_text_renderer = PlainTextRenderer()
-    image_card_renderer = ImageCardRenderer(output_dir=settings.data_dir / "rendered_cards")
-    message_delivery_service = MessageDeliveryService(
-        runtime_config=runtime_config,
-        plain_text_renderer=plain_text_renderer,
-        image_card_renderer=image_card_renderer,
-    )
 
     message_usecase = MessageUseCase(
         identity_repo=identity_repo,
@@ -125,7 +113,7 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         group_dialogue_store=group_dialogue_store,
         error_aggregator=error_aggregator,
         review_scheduler=review_scheduler,
-        recent_chat_min_sentences=settings.static.message.group_dialogue_trigger_min_sentences,
+        recent_chat_min_sentences=10,
     )
     conversation_usecase = ConversationUseCase(
         identity_repo=identity_repo,
@@ -165,6 +153,33 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
     )
     await admin_usecase.bootstrap_admin()
     asyncio.create_task(_warm_english_provider(english_correction_provider))
+
+    channels: dict[str, ChannelAdapter] = {}
+    feishu_docs_service: FeishuDocsService | None = None
+
+    if settings.runtime.feishu_app_id:
+        feishu_channel = FeishuChannel(
+            app_id=settings.runtime.feishu_app_id,
+            app_secret=settings.runtime.feishu_app_secret,
+        )
+        channels["feishu"] = feishu_channel
+
+        if settings.static.feishu.docs.enabled:
+            docs_client = FeishuDocsClient(
+                app_id=settings.runtime.feishu_app_id,
+                app_secret=settings.runtime.feishu_app_secret,
+            )
+            docs_repo = FeishuDocsRepository(session_factory)
+            feishu_docs_service = FeishuDocsService(
+                docs_client=docs_client,
+                docs_repo=docs_repo,
+                feishu_channel=feishu_channel,
+                folder_name=settings.static.feishu.docs.folder_name,
+                notify_chat_ids=settings.static.feishu.docs.notify_chat_ids,
+            )
+    else:
+        logger.warning("feishu_app_id not configured, no channels registered")
+
     container = ServiceContainer(
         settings=settings,
         engine=engine,
@@ -178,47 +193,15 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         runtime_config=runtime_config,
         context_store=context_store,
         group_dialogue_store=group_dialogue_store,
-        plain_text_renderer=plain_text_renderer,
-        image_card_renderer=image_card_renderer,
-        message_delivery_service=message_delivery_service,
         conversation_usecase=conversation_usecase,
         message_usecase=message_usecase,
         learning_usecase=learning_usecase,
         quiz_usecase=quiz_usecase,
         report_usecase=report_usecase,
         admin_usecase=admin_usecase,
-        channels={
-            "onebot": OneBotChannel(
-                runtime_config=runtime_config,
-                plain_text_renderer=plain_text_renderer,
-                image_card_renderer=image_card_renderer,
-            ),
-        },
+        channels=channels,
+        feishu_docs_service=feishu_docs_service,
     )
-
-    # 注册飞书渠道（仅当配置了 app_id 时）
-    if settings.runtime.feishu_app_id:
-        feishu_channel = FeishuChannel(
-            app_id=settings.runtime.feishu_app_id,
-            app_secret=settings.runtime.feishu_app_secret,
-        )
-        container.channels["feishu"] = feishu_channel
-
-        # 注册飞书文档归档服务
-        if settings.static.feishu.docs.enabled:
-            docs_client = FeishuDocsClient(
-                app_id=settings.runtime.feishu_app_id,
-                app_secret=settings.runtime.feishu_app_secret,
-            )
-            docs_repo = FeishuDocsRepository(session_factory)
-            container.feishu_docs_service = FeishuDocsService(
-                docs_client=docs_client,
-                docs_repo=docs_repo,
-                feishu_channel=feishu_channel,
-                folder_name=settings.static.feishu.docs.folder_name,
-                notify_chat_ids=settings.static.feishu.docs.notify_chat_ids,
-            )
-
     set_container(container)
 
     # 注册 Friends 每日对话推送服务

@@ -145,7 +145,7 @@ async def groups_page(request: Request):
 async def groups_submit(
     request: Request,
     group_id: str | None = Form(None),
-    qq_group_id: str = Form(...),
+    chat_id: str = Form(...),
     name: str = Form(""),
     enabled: str | None = Form(None),
     is_admin: str | None = Form(None),
@@ -158,7 +158,7 @@ async def groups_submit(
     try:
         await container.admin_usecase.save_group(
             group_id=parsed_group_id,
-            qq_group_id=qq_group_id,
+            chat_id=chat_id,
             name=name,
             enabled=bool(enabled),
             is_admin=bool(is_admin),
@@ -495,8 +495,8 @@ async def test_enroll(request: Request):
     try:
         reply = await container.learning_usecase.enroll(
             EnrollmentContext(
-                qq_group_id=group_id, group_name="TestGroup",
-                qq_user_id=user_id, nickname=nickname,
+                chat_id=group_id, group_name="TestGroup",
+                open_id=user_id, nickname=nickname,
             )
         )
         return _ok(reply=reply)
@@ -508,9 +508,9 @@ async def test_enroll(request: Request):
 async def test_today_task(request: Request):
     container, group_id, user_id, nickname = await _test_params(request)
     try:
-        await container.learning_usecase.build_today_lesson(qq_group_id=group_id)
+        await container.learning_usecase.build_today_lesson(chat_id=group_id)
         envelope = await container.learning_usecase.get_today_task_envelope(
-            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            chat_id=group_id, open_id=user_id, nickname=nickname,
         )
         return _ok(envelope, reply=envelope.plain_text)
     except Exception as exc:
@@ -529,7 +529,7 @@ async def test_submit_task(request: Request):
         return _err("task_id 必须是数字")
     try:
         reply = await container.learning_usecase.submit_task(
-            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            chat_id=group_id, open_id=user_id, nickname=nickname,
             task_id=int(task_id), content=str(content),
         )
         return _ok(reply=reply)
@@ -542,7 +542,7 @@ async def test_review(request: Request):
     container, group_id, user_id, nickname = await _test_params(request)
     try:
         reply = await container.learning_usecase.review_now(
-            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            chat_id=group_id, open_id=user_id, nickname=nickname,
             limit=container.runtime_config.daily_review_insert_count(),
         )
         return _ok(reply=reply)
@@ -555,7 +555,7 @@ async def test_level(request: Request):
     container, group_id, user_id, nickname = await _test_params(request)
     try:
         reply = await container.learning_usecase.refresh_user_level(
-            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            chat_id=group_id, open_id=user_id, nickname=nickname,
         )
         return _ok(reply=reply)
     except Exception as exc:
@@ -567,7 +567,7 @@ async def test_quiz(request: Request):
     container, group_id, user_id, nickname = await _test_params(request)
     try:
         envelope = await container.quiz_usecase.start_weekly_quiz_envelope(
-            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            chat_id=group_id, open_id=user_id, nickname=nickname,
         )
         return _ok(envelope, reply=envelope.plain_text)
     except Exception as exc:
@@ -591,7 +591,7 @@ async def test_quiz_submit(request: Request):
         return _err("需要至少一个答案，格式: a1=A&a2=B")
     try:
         reply = await container.quiz_usecase.submit_weekly_quiz(
-            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            chat_id=group_id, open_id=user_id, nickname=nickname,
             session_id=int(session_id), answers=answers,
         )
         return _ok(reply=reply)
@@ -604,7 +604,7 @@ async def test_weekly_report(request: Request):
     container, group_id, user_id, nickname = await _test_params(request)
     try:
         envelope = await container.report_usecase.build_weekly_report_envelope(
-            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            chat_id=group_id, open_id=user_id, nickname=nickname,
         )
         return _ok(envelope, reply=envelope.plain_text)
     except Exception as exc:
@@ -616,7 +616,7 @@ async def test_error_digest(request: Request):
     container, group_id, user_id, nickname = await _test_params(request)
     try:
         envelope = await container.report_usecase.build_daily_error_digest_envelope(
-            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            chat_id=group_id, open_id=user_id, nickname=nickname,
         )
         if envelope is None:
             return _ok(reply="当日无错误记录")
@@ -630,7 +630,7 @@ async def test_progress(request: Request):
     container, group_id, user_id, nickname = await _test_params(request)
     try:
         envelope = await container.report_usecase.build_daily_progress_envelope(
-            qq_group_id=group_id, qq_user_id=user_id, nickname=nickname,
+            chat_id=group_id, open_id=user_id, nickname=nickname,
         )
         if envelope is None:
             return _ok(reply="当日无学习进度")

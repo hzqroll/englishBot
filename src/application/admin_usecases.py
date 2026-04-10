@@ -66,11 +66,11 @@ class AdminUseCase:
         return [
             {
                 "id": group.id,
-                "qq_group_id": group.qq_group_id,
+                "chat_id": group.chat_id,
                 "name": group.name,
                 "enabled": group.enabled,
-                "is_admin": group.qq_group_id in admin_group_ids if _is_onebot_group_id(group.qq_group_id) else False,
-                "platform": "feishu" if _is_feishu_group_id(group.qq_group_id) else "onebot",
+                "is_admin": group.chat_id in admin_group_ids,
+                "platform": "feishu",
                 "render_mode": config_map.get(group.id, {}).get("message.render_mode", ""),
                 "updated_at": group.updated_at,
             }
@@ -81,49 +81,44 @@ class AdminUseCase:
         self,
         *,
         group_id: int | None,
-        qq_group_id: str,
+        chat_id: str,
         name: str,
         enabled: bool,
         is_admin: bool,
         render_mode: str = "",
     ) -> None:
-        qq_group_id = qq_group_id.strip()
-        if not _is_supported_group_id(qq_group_id):
-            raise ValueError("群号必须是纯数字，或使用 oc_ 开头的飞书群 ID。")
+        chat_id = chat_id.strip()
+        if not _is_supported_group_id(chat_id):
+            raise ValueError("群 ID 必须使用 oc_ 开头的飞书群 ID。")
 
         existing_groups = await self._admin_repo.list_groups()
         old_group_id = None
         if group_id is not None:
             for group in existing_groups:
                 if group.id == group_id:
-                    old_group_id = group.qq_group_id
+                    old_group_id = group.chat_id
                     break
 
         saved_group = await self._admin_repo.save_group(
             group_id=group_id,
-            qq_group_id=qq_group_id,
+            chat_id=chat_id,
             name=name.strip(),
             enabled=enabled,
         )
         all_groups = await self._admin_repo.list_groups()
-        enabled_group_ids = [group.qq_group_id for group in all_groups if group.enabled and _is_onebot_group_id(group.qq_group_id)]
         feishu_enabled_group_ids = [
-            group.qq_group_id for group in all_groups if group.enabled and _is_feishu_group_id(group.qq_group_id)
+            group.chat_id for group in all_groups if group.enabled and _is_feishu_group_id(group.chat_id)
         ]
 
         admin_group_ids = set(self._runtime_config.admin_group_ids())
         if old_group_id:
             admin_group_ids.discard(old_group_id)
-        admin_group_ids.discard(saved_group.qq_group_id)
-        if is_admin and _is_onebot_group_id(saved_group.qq_group_id):
-            admin_group_ids.add(saved_group.qq_group_id)
-        known_group_ids = {group.qq_group_id for group in all_groups if _is_onebot_group_id(group.qq_group_id)}
+        admin_group_ids.discard(saved_group.chat_id)
+        if is_admin and _is_feishu_group_id(saved_group.chat_id):
+            admin_group_ids.add(saved_group.chat_id)
+        known_group_ids = {group.chat_id for group in all_groups if _is_feishu_group_id(group.chat_id)}
         admin_group_ids &= known_group_ids
 
-        await self._learning_repo.upsert_runtime_setting(
-            key="bot.enabled_group_ids",
-            value=self._dump_yaml(enabled_group_ids),
-        )
         await self._learning_repo.upsert_runtime_setting(
             key="feishu.enabled_group_ids",
             value=self._dump_yaml(feishu_enabled_group_ids),
@@ -148,10 +143,10 @@ class AdminUseCase:
         seed_ids = set(self._settings.static.bot.enabled_group_ids) | set(self._runtime_config.enabled_group_ids())
         seed_ids |= set(self._settings.static.bot.admin_group_ids) | set(self._runtime_config.admin_group_ids())
         seed_ids |= set(self._settings.static.feishu.enabled_group_ids) | set(self._runtime_config.feishu_enabled_group_ids())
-        for qq_group_id in sorted(seed_ids):
-            if qq_group_id:
-                enabled = self._runtime_config.is_enabled_chat(qq_group_id)
-                await self._admin_repo.ensure_group(qq_group_id=qq_group_id, enabled=enabled)
+        for chat_id in sorted(seed_ids):
+            if chat_id:
+                enabled = self._runtime_config.is_enabled_chat(chat_id)
+                await self._admin_repo.ensure_group(chat_id=chat_id, enabled=enabled)
 
     @staticmethod
     def _dump_yaml(value) -> str:
@@ -162,9 +157,5 @@ def _is_feishu_group_id(group_id: str) -> bool:
     return group_id.startswith("oc_")
 
 
-def _is_onebot_group_id(group_id: str) -> bool:
-    return group_id.isdigit()
-
-
 def _is_supported_group_id(group_id: str) -> bool:
-    return _is_onebot_group_id(group_id) or _is_feishu_group_id(group_id)
+    return _is_feishu_group_id(group_id)

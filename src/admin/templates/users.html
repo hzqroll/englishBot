@@ -25,7 +25,7 @@
     <table class="data-table">
     <thead>
       <tr>
-        <th>QQ</th>
+        <th>Open ID</th>
         <th>昵称</th>
         <th>加入时间</th>
         <th>最近活跃</th>
@@ -34,7 +34,7 @@
     <tbody>
       {% for user in users %}
       <tr>
-        <td><strong>{{ user.qq_user_id }}</strong></td>
+        <td><strong>{{ user.open_id }}</strong></td>
         <td>{{ user.nickname or "未命名" }}</td>
         <td>{{ user.joined_at }}</td>
         <td>{{ user.last_active_at }}</td>

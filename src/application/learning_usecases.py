@@ -16,9 +16,9 @@ from src.infrastructure.settings.models import PromptsSettings
 
 @dataclass(slots=True)
 class EnrollmentContext:
-    qq_group_id: str
+    chat_id: str
     group_name: str
-    qq_user_id: str
+    open_id: str
     nickname: str
 
 
@@ -47,8 +47,8 @@ class LearningUseCase:
         self._points_per_review = points_per_review
 
     async def enroll(self, ctx: EnrollmentContext) -> str:
-        group = await self._identity_repo.ensure_group(ctx.qq_group_id, ctx.group_name)
-        user = await self._identity_repo.ensure_user(ctx.qq_user_id, ctx.nickname)
+        group = await self._identity_repo.ensure_group(ctx.chat_id, ctx.group_name)
+        user = await self._identity_repo.ensure_user(ctx.open_id, ctx.nickname)
         await self._identity_repo.enroll_user(user.id, group.id)
         await self._learning_repo.upsert_user_level(
             user_id=user.id,
@@ -58,8 +58,8 @@ class LearningUseCase:
         )
         return "报名成功，已加入英语训练营。你现在可以使用“今日任务”“复习一下”“开始周测”等命令。"
 
-    async def build_today_lesson(self, *, qq_group_id: str, biz_date: date | None = None) -> LessonBundle:
-        group = await self._identity_repo.ensure_group(qq_group_id)
+    async def build_today_lesson(self, *, chat_id: str, biz_date: date | None = None) -> LessonBundle:
+        group = await self._identity_repo.ensure_group(chat_id)
         biz_date = biz_date or date.today()
         level = "beginner"
         bundle = await self._content_provider.build_lesson(level=level, biz_date=biz_date)
@@ -83,9 +83,9 @@ class LearningUseCase:
         await self._learning_repo.upsert_content_and_lesson(group.id, bundle)
         return bundle
 
-    async def get_today_task_message(self, *, qq_group_id: str) -> str:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        lesson_detail, tasks = await self._ensure_today_task_detail(group.id, qq_group_id)
+    async def get_today_task_message(self, *, chat_id: str) -> str:
+        group = await self._identity_repo.ensure_group(chat_id)
+        lesson_detail, tasks = await self._ensure_today_task_detail(group.id, chat_id)
         lesson, content = lesson_detail
         target_items = await self._learning_repo.get_target_items_for_lesson(lesson_id=lesson.id)
         core_lines = [
@@ -121,20 +121,20 @@ class LearningUseCase:
     async def get_today_task_envelope(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
     ) -> MessageEnvelope:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
         enrolled = await self._identity_repo.is_enrolled(user.id, group.id)
         if not enrolled:
             return MessageEnvelope(plain_text="你还没有报名学习，请先发送“报名学习”。")
 
-        lesson_detail, tasks = await self._ensure_today_task_detail(group.id, qq_group_id)
+        lesson_detail, tasks = await self._ensure_today_task_detail(group.id, chat_id)
         lesson, content = lesson_detail
         target_items = await self._learning_repo.get_target_items_for_lesson(lesson_id=lesson.id)
-        plain_text = await self.get_today_task_message(qq_group_id=qq_group_id)
+        plain_text = await self.get_today_task_message(chat_id=chat_id)
         document = self._build_task_document(
             title=lesson.title or content.title,
             transcript=content.transcript,
@@ -147,12 +147,12 @@ class LearningUseCase:
             card_document=document,
         )
 
-    async def get_today_task_broadcast_envelope(self, *, qq_group_id: str) -> MessageEnvelope:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        lesson_detail, tasks = await self._ensure_today_task_detail(group.id, qq_group_id)
+    async def get_today_task_broadcast_envelope(self, *, chat_id: str) -> MessageEnvelope:
+        group = await self._identity_repo.ensure_group(chat_id)
+        lesson_detail, tasks = await self._ensure_today_task_detail(group.id, chat_id)
         lesson, content = lesson_detail
         target_items = await self._learning_repo.get_target_items_for_lesson(lesson_id=lesson.id)
-        plain_text = await self.get_today_task_message(qq_group_id=qq_group_id)
+        plain_text = await self.get_today_task_message(chat_id=chat_id)
         return MessageEnvelope(
             plain_text=plain_text,
             card_document=self._build_task_document(
@@ -168,14 +168,14 @@ class LearningUseCase:
     async def submit_task(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         task_id: int,
         content: str,
     ) -> str:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
         enrolled = await self._identity_repo.is_enrolled(user.id, group.id)
         if not enrolled:
             return "你还没有报名学习，请先发送“报名学习”。"
@@ -198,9 +198,9 @@ class LearningUseCase:
         )
         return f"任务提交成功，得分 {score}。\n反馈：{feedback}"
 
-    async def review_now(self, *, qq_group_id: str, qq_user_id: str, nickname: str, limit: int) -> str:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
+    async def review_now(self, *, chat_id: str, open_id: str, nickname: str, limit: int) -> str:
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
         enrolled = await self._identity_repo.is_enrolled(user.id, group.id)
         if not enrolled:
             return "你还没有报名学习，请先发送“报名学习”。"
@@ -220,9 +220,9 @@ class LearningUseCase:
         )
         return "以下是当前到期复习项：\n" + "\n".join(lines)
 
-    async def refresh_user_level(self, *, qq_group_id: str, qq_user_id: str, nickname: str) -> str:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
+    async def refresh_user_level(self, *, chat_id: str, open_id: str, nickname: str) -> str:
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
         enrolled = await self._identity_repo.is_enrolled(user.id, group.id)
         if not enrolled:
             return "你还没有报名学习，请先发送“报名学习”。"
@@ -254,14 +254,14 @@ class LearningUseCase:
             f"- 活跃度评分：{payload['activity_score']}"
         )
 
-    async def _ensure_today_task_detail(self, group_id: int, qq_group_id: str):
+    async def _ensure_today_task_detail(self, group_id: int, chat_id: str):
         target_date = date.today()
         lesson_detail = await self._learning_repo.get_today_lesson_detail(
             group_id=group_id,
             biz_date=target_date,
         )
         if lesson_detail is None:
-            bundle = await self.build_today_lesson(qq_group_id=qq_group_id, biz_date=target_date)
+            bundle = await self.build_today_lesson(chat_id=chat_id, biz_date=target_date)
             lesson_detail = await self._learning_repo.get_today_lesson_detail(
                 group_id=group_id,
                 biz_date=bundle.biz_date,

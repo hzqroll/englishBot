@@ -106,7 +106,7 @@ def _upgrade_sqlite_schema(connection: Any) -> None:
     group_columns = _table_columns(connection, "groups")
     if "platform" not in group_columns:
         connection.exec_driver_sql(
-            "ALTER TABLE groups ADD COLUMN platform VARCHAR(32) NOT NULL DEFAULT 'onebot'"
+            "ALTER TABLE groups ADD COLUMN platform VARCHAR(32) NOT NULL DEFAULT 'feishu'"
         )
 
 
