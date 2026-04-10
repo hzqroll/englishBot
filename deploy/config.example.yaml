@@ -1,11 +1,3 @@
-bot:
-  enabled: false
-  enabled_group_ids:
-    - "123456789"
-  admin_group_ids:
-    - "123456789"
-  context_ttl_minutes: 15
-
 scheduler:
   daily_push_cron: "0 8 * * *"
   daily_error_digest_cron: "0 18 * * *"
@@ -36,21 +28,16 @@ admin:
   title: "English Bot Admin"
   enable_http_login_warning: true
 
-message:
-  render_mode: image_card
-  enable_task_cards: true
-  card_fallback_to_text: true
-  group_dialogue_trigger_min_sentences: 10
-
 feishu:
-  enabled: true
-  enabled_group_ids: []
-  docs:
-    enabled: false
-    folder_name: "englishImprovePlan"
-    notify_chat_ids: []
+    enabled_group_ids:
+      - "oc_your_group_id"
+    context_ttl_minutes: 15
+    docs:
+        enabled: false
+        folder_name: "englishImprovePlan"
+        notify_chat_ids: []
 
 friends:
-  enabled: false
-  start_date: ""
-  daily_push_cron: "0 9 * * *"
+    enabled: false
+    start_date: ""
+    daily_push_cron: "0 9 * * *"
