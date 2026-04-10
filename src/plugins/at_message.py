@@ -32,6 +32,8 @@ at_message = on_message(rule=Rule(_matches_at_message), priority=10, block=True)
 @at_message.handle()
 async def handle_at_message(bot: Bot, event: GroupMessageEvent, text: str = EventPlainText()) -> None:
     container = await get_or_init_container()
+    if not container.runtime_config.is_qq_enabled():
+        return
     enabled_group_ids = container.runtime_config.enabled_group_ids()
     if enabled_group_ids and str(event.group_id) not in enabled_group_ids:
         return

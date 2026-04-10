@@ -91,6 +91,7 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         api_key=settings.runtime.llm_api_key,
         base_url=settings.runtime.llm_base_url,
         model=settings.runtime.llm_model,
+        prompts=settings.static.prompts,
     )
     english_correction_provider = LanguageToolEnglishProvider(
         llm_provider=correction_provider,
@@ -141,6 +142,7 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         feedback_provider=correction_provider,
         points_per_task=settings.static.learning.score_per_task_completion,
         points_per_review=settings.static.learning.score_per_review_completion,
+        prompts=settings.static.prompts,
     )
     quiz_usecase = QuizUseCase(
         identity_repo=identity_repo,
@@ -153,6 +155,7 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         learning_repo=learning_repo,
         summary_provider=correction_provider,
         level_service=level_service,
+        prompts=settings.static.prompts,
     )
     admin_usecase = AdminUseCase(
         admin_repo=admin_repo,
@@ -226,6 +229,7 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
             container.friends_usecase = FriendsUseCase(
                 friends_provider=friends_provider,
                 llm_provider=correction_provider,
+                prompts=settings.static.prompts,
             )
             logger.info(
                 "friends feature enabled: %d segments loaded from %s",

@@ -9,6 +9,7 @@ from src.domain.value_objects.messaging import CardDocument, CardSection, Messag
 from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
+from src.infrastructure.settings.models import PromptsSettings
 
 
 class ReportUseCase:
@@ -19,11 +20,13 @@ class ReportUseCase:
         learning_repo: LearningRepository,
         summary_provider: OpenAICompatibleProvider,
         level_service: LevelService,
+        prompts: PromptsSettings | None = None,
     ) -> None:
         self._identity_repo = identity_repo
         self._learning_repo = learning_repo
         self._summary_provider = summary_provider
         self._level_service = level_service
+        self._prompts = prompts or PromptsSettings()
 
     async def build_weekly_report(
         self,
@@ -52,8 +55,6 @@ class ReportUseCase:
     ) -> MessageEnvelope:
         group = await self._identity_repo.ensure_group(qq_group_id)
         user = await self._identity_repo.ensure_user(qq_user_id, nickname)
-        if not await self._identity_repo.is_enrolled(user.id, group.id):
-            return MessageEnvelope(plain_text="你还没有报名学习。")
 
         target_date = target_date or datetime.now().astimezone().date()
         week_key = target_date.strftime("%G-W%V")
@@ -86,10 +87,11 @@ class ReportUseCase:
             for item in top_fragments
         ]
         summary_text = await self._summary_provider.generate_feedback(
-            (
-                "请生成一句简洁的英语学习周报鼓励语，语气积极，不超过 50 字。"
-                f" 学习天数：{stats['learning_days']}，完成率：{stats['task_completion_rate']:.0%}，"
-                f" 纠错次数：{stats['correction_count']}，当前等级：{level}。"
+            self._prompts.weekly_report_summary.format(
+                learning_days=stats["learning_days"],
+                task_completion_rate=f"{stats['task_completion_rate']:.0%}",
+                correction_count=stats["correction_count"],
+                level=level,
             )
         )
         report_json = {
@@ -186,8 +188,6 @@ class ReportUseCase:
     ) -> MessageEnvelope | None:
         group = await self._identity_repo.ensure_group(qq_group_id)
         user = await self._identity_repo.ensure_user(qq_user_id, nickname)
-        if not await self._identity_repo.is_enrolled(user.id, group.id):
-            return None
 
         target_date = target_date or datetime.now().astimezone().date()
         digest = await self._learning_repo.get_daily_error_digest(
@@ -273,8 +273,6 @@ class ReportUseCase:
     ) -> MessageEnvelope | None:
         group = await self._identity_repo.ensure_group(qq_group_id)
         user = await self._identity_repo.ensure_user(qq_user_id, nickname)
-        if not await self._identity_repo.is_enrolled(user.id, group.id):
-            return None
 
         target_date = target_date or datetime.now().astimezone().date()
         stats = await self._learning_repo.get_daily_progress_stats(
@@ -498,12 +496,16 @@ class ReportUseCase:
         mastery_level: str,
         mastery_reason: str,
     ) -> str:
-        prompt = (
-            "请用不超过 60 字生成一段英语学习日总结，语气积极、具体。"
-            f" 状态：{task_status}；等级：{level_label}；"
-            f" 英语尝试：{evidence_stats['english_attempt_count']}；目标词命中：{evidence_stats['target_hit_count']}；"
-            f" 纠错次数：{stats['correction_count']}；任务完成：{stats['today_task_completed']}/{stats['today_task_total']}；"
-            f" 掌握度：{self._mastery_label(mastery_level)}；依据：{mastery_reason}"
+        prompt = self._prompts.daily_progress_summary.format(
+            task_status=task_status,
+            level_label=level_label,
+            english_attempt_count=evidence_stats["english_attempt_count"],
+            target_hit_count=evidence_stats["target_hit_count"],
+            correction_count=stats["correction_count"],
+            today_task_completed=stats["today_task_completed"],
+            today_task_total=stats["today_task_total"],
+            mastery_label=self._mastery_label(mastery_level),
+            mastery_reason=mastery_reason,
         )
         try:
             return await self._summary_provider.generate_feedback(prompt)

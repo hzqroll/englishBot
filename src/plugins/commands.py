@@ -276,6 +276,8 @@ async def handle_fixed_command_text(
 @group_command.handle()
 async def handle_group_command(bot: Bot, event: GroupMessageEvent) -> None:
     container = await get_or_init_container()
+    if not container.runtime_config.is_qq_enabled():
+        return
     text = _command_text(event)
     qq_user_id, nickname = _get_identity(event)
     envelope = await handle_fixed_command_text(

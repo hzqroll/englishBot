@@ -43,6 +43,10 @@
             <span class="nav-kicker">Tools</span>
             <strong>联调调试</strong>
           </a>
+          <a class="nav-link {% if request.url.path.startswith('/admin/llm') %}active{% endif %}" href="/admin/llm">
+            <span class="nav-kicker">LLM</span>
+            <strong>提示词测试</strong>
+          </a>
           <a class="nav-link nav-link-ghost" href="/admin/logout">
             <span class="nav-kicker">Session</span>
             <strong>退出登录</strong>

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.infrastructure.db.models import Enrollment, Group, Streak, User
+from src.infrastructure.db.models import Enrollment, Group, MessageEvent, Streak, User
 
 
 class IdentityRepository:
@@ -95,6 +95,18 @@ class IdentityRepository:
                     Enrollment.group_id == group_id,
                     Enrollment.status == "active",
                 )
+                .order_by(User.last_active_at.desc())
+            )
+            return list(rows)
+
+    async def list_group_active_users(self, group_id: int) -> list[User]:
+        """获取群内所有发过消息的用户（不依赖报名）。"""
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(User)
+                .join(MessageEvent, MessageEvent.user_id == User.id)
+                .where(MessageEvent.group_id == group_id)
+                .distinct()
                 .order_by(User.last_active_at.desc())
             )
             return list(rows)

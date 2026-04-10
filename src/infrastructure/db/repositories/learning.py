@@ -451,6 +451,30 @@ class LearningRepository:
             await session.refresh(lesson)
             return lesson
 
+    async def update_lesson_push_status(
+        self,
+        *,
+        group_id: int,
+        biz_date: date,
+        channel: str,
+        push_status: str,
+        summary_text: str = "",
+    ) -> None:
+        async with self._session_factory() as session:
+            lesson = await session.scalar(
+                select(DailyLesson).where(
+                    DailyLesson.group_id == group_id,
+                    DailyLesson.biz_date == biz_date,
+                )
+            )
+            if lesson is None:
+                return
+            lesson.channel = channel
+            lesson.push_status = push_status
+            lesson.pushed_at = datetime.now(UTC)
+            lesson.summary_text = summary_text
+            await session.commit()
+
     async def get_today_tasks(self, *, group_id: int, biz_date: date) -> list[DailyTask]:
         async with self._session_factory() as session:
             lesson = await session.scalar(

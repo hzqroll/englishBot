@@ -11,6 +11,7 @@ from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
 from src.infrastructure.providers.curriculum_static import StaticCurriculumProvider
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
+from src.infrastructure.settings.models import PromptsSettings
 
 
 @dataclass(slots=True)
@@ -33,6 +34,7 @@ class LearningUseCase:
         feedback_provider: OpenAICompatibleProvider,
         points_per_task: int,
         points_per_review: int,
+        prompts: PromptsSettings | None = None,
     ) -> None:
         self._identity_repo = identity_repo
         self._learning_repo = learning_repo
@@ -40,6 +42,7 @@ class LearningUseCase:
         self._review_scheduler = review_scheduler
         self._content_provider = content_provider
         self._feedback_provider = feedback_provider
+        self._prompts = prompts or PromptsSettings()
         self._points_per_task = points_per_task
         self._points_per_review = points_per_review
 
@@ -179,7 +182,7 @@ class LearningUseCase:
 
         score = min(max(len(content.strip()) // 6, 1), 10) * 10
         feedback = await self._feedback_provider.generate_feedback(
-            f"请用 2 句话评价以下英语学习任务提交，给出鼓励和一个改进建议：\n{content}"
+            self._prompts.task_feedback.format(content=content)
         )
         await self._learning_repo.submit_task(
             task_id=task_id,

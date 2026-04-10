@@ -75,14 +75,6 @@ class FeishuDocsService:
         await self._repo.save_value(cache_key, doc_id)
         logger.info("feishu docs: created weekly doc %s (id=%s)", title, doc_id)
 
-        # 通知群
-        doc_url = f"https://bytedance.larkoffice.com/docx/{doc_id}"
-        for chat_id in self._notify_chat_ids:
-            try:
-                await self._channel.send_text(chat_id, f"本周学习文档已创建：{doc_url}")
-            except Exception:
-                logger.exception("feishu docs: failed to notify chat %s", chat_id)
-
         return doc_id
 
     # ------------------------------------------------------------------

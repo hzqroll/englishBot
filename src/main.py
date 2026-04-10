@@ -60,7 +60,7 @@ async def _on_startup() -> None:
     register_jobs()
     logging.getLogger(__name__).info("container initialized, feishu_app_id=%s", settings.runtime.feishu_app_id)
 
-    if settings.runtime.feishu_app_id:
+    if settings.runtime.feishu_app_id and settings.static.feishu.enabled:
         from src.infrastructure.channels.feishu_bot import FeishuBot
 
         feishu_bot = FeishuBot(

@@ -52,3 +52,58 @@ friends:
     enabled: true
     start_date: "2026-04-08"
     daily_push_cron: "0 9 * * *"
+
+prompts:
+    # 英文纠错 — 返回 JSON 含 corrected_text, zh_translation, natural_expression, explanation, error_points[]
+    correction_system: |
+        你是英语学习助教。请严格返回 JSON，结构如下：
+        {"corrected_text": "...", "zh_translation": "...", "natural_expression": "...", "explanation": "...", "error_points": [{"error_type": "tense|article|preposition|word_choice|spelling|expression|grammar|agreement|natural_expression", "source_fragment": "...", "correct_fragment": "...", "explanation": "..."}]}
+
+    # 翻译优化 — 变量: {context}, {source_text}, {base_translation}
+    improve_translation: |
+        请将下面中文翻译优化为更自然的英文。
+        保持简洁，只返回优化后的英文。
+        上下文：{context}
+        中文：{source_text}
+        基础翻译：{base_translation}
+
+    # 任务提交反馈 — 变量: {content}
+    task_feedback: |
+        请用 2 句话评价以下英语学习任务提交，给出鼓励和一个改进建议：
+        {content}
+
+    # 对话分析 — 返回 JSON 含 translated_dialogue, speaker_feedbacks[]
+    dialogue_analysis_system: |
+        你是英语学习助教。请严格返回 JSON，结构如下：
+        {"translated_dialogue": "...", "speaker_feedbacks": [{"speaker": "...", "overall_comment": "...", "issues": ["..."]}]}
+
+        要求：
+        1. 保留原始对话顺序和说话人标识。
+        2. 如果原文已经是英文，只做轻微润色，不要改写语义。
+        3. 只指出语言表达、语法、用词、自然度问题。
+        4. 如果某个说话人没有明显问题，可以省略。
+
+    # 周报总结 — 变量: {learning_days}, {task_completion_rate}, {correction_count}, {level}
+    weekly_report_summary: |
+        请生成一句简洁的英语学习周报鼓励语，语气积极，不超过 50 字。 学习天数：{learning_days}，完成率：{task_completion_rate}， 纠错次数：{correction_count}，当前等级：{level}。
+
+    # 日进度总结 — 变量: {task_status}, {level_label}, {english_attempt_count}, {target_hit_count}, {correction_count}, {today_task_completed}, {today_task_total}, {mastery_label}, {mastery_reason}
+    daily_progress_summary: |
+        请用不超过 60 字生成一段英语学习日总结，语气积极、具体。 状态：{task_status}；等级：{level_label}； 英语尝试：{english_attempt_count}；目标词命中：{target_hit_count}； 纠错次数：{correction_count}；任务完成：{today_task_completed}/{today_task_total}； 掌握度：{mastery_label}；依据：{mastery_reason}
+
+    # Friends 美剧对话分析 — 返回 JSON 含 translation, vocabulary, grammar, culture
+    friends_analysis_system: |
+        你是英语学习助教，擅长分析美剧对话。请严格返回 JSON，结构如下：
+        {
+          "translation": "对话的中文翻译，每行一句，用换行符分隔",
+          "vocabulary": ["词汇/短语 (音标) — 释义: 例句", ...],
+          "grammar": ["语法点1: 解析", "语法点2: 解析"],
+          "culture": ["文化背景说明"]
+        }
+
+        要求：
+        1. translation: 逐句翻译，保留说话人前缀，如 'Monica: 莫妮卡说的中文翻译'
+        2. vocabulary: 挑选 3-5 个重点词汇/短语，包含音标和例句
+        3. grammar: 1-2 个语法点，用简单中文解析
+        4. culture: 如有文化背景需要说明则给出，没有则返回空数组 []
+        5. 只返回 JSON，不要有其他文字

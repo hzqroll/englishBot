@@ -6,6 +6,7 @@ from datetime import date
 from src.domain.value_objects.messaging import CardDocument, CardSection, MessageEnvelope
 from src.infrastructure.providers.friends_transcript import FriendsTranscriptProvider
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
+from src.infrastructure.settings.models import PromptsSettings
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +19,11 @@ class FriendsUseCase:
         *,
         friends_provider: FriendsTranscriptProvider,
         llm_provider: OpenAICompatibleProvider,
+        prompts: PromptsSettings | None = None,
     ) -> None:
         self._provider = friends_provider
         self._llm = llm_provider
+        self._prompts = prompts or PromptsSettings()
 
     async def build_daily_friends_envelope(self, *, biz_date: date, start_date: date) -> MessageEnvelope:
         segment = self._provider.get_segment(biz_date, start_date)
@@ -82,21 +85,7 @@ class FriendsUseCase:
         if not self._llm._api_key or not self._llm._base_url or not self._llm._model:
             return {}
 
-        system_prompt = (
-            "你是英语学习助教，擅长分析美剧对话。请严格返回 JSON，结构如下：\n"
-            "{\n"
-            '  "translation": "对话的中文翻译，每行一句，用换行符分隔",\n'
-            '  "vocabulary": ["词汇/短语 (音标) — 释义: 例句", ...],\n'
-            '  "grammar": ["语法点1: 解析", "语法点2: 解析"],\n'
-            '  "culture": ["文化背景说明"]\n'
-            "}\n\n"
-            "要求：\n"
-            "1. translation: 逐句翻译，保留说话人前缀，如 'Monica: 莫妮卡说的中文翻译'\n"
-            "2. vocabulary: 挑选 3-5 个重点词汇/短语，包含音标和例句\n"
-            "3. grammar: 1-2 个语法点，用简单中文解析\n"
-            "4. culture: 如有文化背景需要说明则给出，没有则返回空数组 []\n"
-            "5. 只返回 JSON，不要有其他文字"
-        )
+        system_prompt = self._prompts.friends_analysis_system
 
         try:
             data = await self._llm._chat_json(

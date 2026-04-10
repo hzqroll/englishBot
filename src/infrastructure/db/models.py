@@ -189,6 +189,10 @@ class DailyLesson(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(255), default="")
     package_snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="published")
+    channel: Mapped[str] = mapped_column(String(32), default="onebot")
+    push_status: Mapped[str] = mapped_column(String(32), default="pending")
+    pushed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    summary_text: Mapped[str] = mapped_column(Text, default="")
 
 
 class DailyTargetItem(Base, TimestampMixin):
@@ -368,12 +372,13 @@ class RuntimeSetting(Base):
 
 class GroupConfig(Base, TimestampMixin):
     __tablename__ = "group_configs"
-    __table_args__ = (UniqueConstraint("group_id", "key", name="uq_group_configs_group_key"),)
+    __table_args__ = (UniqueConstraint("group_id", "key", "channel", name="uq_group_configs_group_key_channel"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
     key: Mapped[str] = mapped_column(String(128))
     value: Mapped[str] = mapped_column(Text)
+    channel: Mapped[str] = mapped_column(String(32), default="onebot")
 
 
 class AdminUser(Base, TimestampMixin):

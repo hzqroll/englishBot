@@ -161,13 +161,17 @@ class AdminRepository:
             rows = await session.scalars(select(GroupConfig))
             return list(rows)
 
-    async def upsert_group_config(self, *, group_id: int, key: str, value: str) -> GroupConfig:
+    async def upsert_group_config(self, *, group_id: int, key: str, value: str, channel: str = "onebot") -> GroupConfig:
         async with self._session_factory() as session:
             row = await session.scalar(
-                select(GroupConfig).where(GroupConfig.group_id == group_id, GroupConfig.key == key)
+                select(GroupConfig).where(
+                    GroupConfig.group_id == group_id,
+                    GroupConfig.key == key,
+                    GroupConfig.channel == channel,
+                )
             )
             if row is None:
-                row = GroupConfig(group_id=group_id, key=key, value=value)
+                row = GroupConfig(group_id=group_id, key=key, value=value, channel=channel)
                 session.add(row)
             else:
                 row.value = value
@@ -175,10 +179,14 @@ class AdminRepository:
             await session.refresh(row)
             return row
 
-    async def delete_group_config(self, *, group_id: int, key: str) -> None:
+    async def delete_group_config(self, *, group_id: int, key: str, channel: str = "onebot") -> None:
         async with self._session_factory() as session:
             row = await session.scalar(
-                select(GroupConfig).where(GroupConfig.group_id == group_id, GroupConfig.key == key)
+                select(GroupConfig).where(
+                    GroupConfig.group_id == group_id,
+                    GroupConfig.key == key,
+                    GroupConfig.channel == channel,
+                )
             )
             if row is not None:
                 await session.delete(row)

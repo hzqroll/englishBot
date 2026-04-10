@@ -31,6 +31,12 @@ class RuntimeConfigService:
                 self._group_cache[gc.group_id] = {}
             self._group_cache[gc.group_id][gc.key] = self._parse_value(gc.value)
 
+    def is_qq_enabled(self) -> bool:
+        return self._get("bot.enabled", self.settings.static.bot.enabled)
+
+    def is_feishu_enabled(self) -> bool:
+        return self._get("feishu.enabled", self.settings.static.feishu.enabled)
+
     def enabled_group_ids(self) -> list[str]:
         return self._get("bot.enabled_group_ids", self.settings.static.bot.enabled_group_ids)
 
@@ -90,13 +96,16 @@ class RuntimeConfigService:
             "scheduler.weekly_quiz_cron": self.settings.static.scheduler.weekly_quiz_cron,
             "scheduler.nightly_backup_cron": self.settings.static.scheduler.nightly_backup_cron,
             "friends.daily_push_cron": self.settings.static.friends.daily_push_cron,
+            "scheduler.sync_feishu_messages_cron": self.settings.static.scheduler.sync_feishu_messages_cron,
         }
         return self._get(key, defaults[key])
 
     def effective_settings(self) -> dict[str, Any]:
         return {
+            "bot.enabled": self.is_qq_enabled(),
             "bot.enabled_group_ids": self.enabled_group_ids(),
             "bot.admin_group_ids": self.admin_group_ids(),
+            "feishu.enabled": self.is_feishu_enabled(),
             "feishu.enabled_group_ids": self.feishu_enabled_group_ids(),
             "learning.daily_review_insert_count": self.daily_review_insert_count(),
             "learning.weekly_quiz_question_count": self.weekly_quiz_question_count(),

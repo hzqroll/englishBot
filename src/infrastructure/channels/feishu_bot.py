@@ -129,6 +129,8 @@ class FeishuBot:
         is_mention: bool,
     ) -> None:
         container = get_container()
+        if not container.runtime_config.is_feishu_enabled():
+            return
         channel = container.channels.get("feishu")
         if channel is None or not isinstance(channel, FeishuChannel):
             logger.error("feishu channel not registered")

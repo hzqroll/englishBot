@@ -70,12 +70,12 @@ def test_task_card_json2_structure():
     # 应包含 collapsible_panel
     tags = [e.get("tag") for e in elements]
     assert "collapsible_panel" in tags, "应包含折叠面板（支持词汇）"
-    # 任务应合并
-    task_markdowns = [
-        e.get("content", "") for e in elements if e.get("tag") == "markdown"
-    ]
-    merged = [m for m in task_markdowns if "造句" in m or "翻译" in m]
-    assert len(merged) >= 1, "任务应合并到同一个区域"
+    # 任务应合并为一个折叠面板
+    task_panels = [e for e in elements if e.get("tag") == "collapsible_panel" and "任务" in e.get("header", {}).get("title", {}).get("content", "")]
+    assert len(task_panels) == 1, "应有一个任务折叠面板"
+    task_elements = task_panels[0].get("elements", [])
+    task_contents = [e.get("content", "") for e in task_elements if e.get("tag") == "markdown"]
+    assert any("造句" in c for c in task_contents), "任务面板中应包含造句任务"
 
 
 def test_task_card_compact_vocab():

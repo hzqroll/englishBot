@@ -17,6 +17,9 @@ class _RuntimeConfigStub:
         self.calls.append(group_id)
         return self.enabled
 
+    def is_feishu_enabled(self) -> bool:
+        return True
+
 
 class _FakeFeishuChannel:
     def __init__(self) -> None:

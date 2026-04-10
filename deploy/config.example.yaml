@@ -1,4 +1,5 @@
 bot:
+  enabled: false
   enabled_group_ids:
     - "123456789"
   admin_group_ids:
@@ -12,6 +13,7 @@ scheduler:
   weekly_report_cron: "0 9 * * 1"
   weekly_quiz_cron: "0 19 * * 0"
   nightly_backup_cron: "0 2 * * *"
+  sync_feishu_messages_cron: "50 17 * * *"
 
 content:
   default_source: ted
@@ -41,6 +43,7 @@ message:
   group_dialogue_trigger_min_sentences: 10
 
 feishu:
+  enabled: true
   enabled_group_ids: []
   docs:
     enabled: false

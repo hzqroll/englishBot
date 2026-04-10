@@ -16,6 +16,7 @@ from src.domain.value_objects.learning import LanguageType
 from src.domain.value_objects.messaging import MessageEnvelope
 from src.infrastructure.auth.security import verify_password
 from src.infrastructure.settings.container import ensure_container
+from src.infrastructure.settings.models import PromptsSettings
 
 
 router = APIRouter()
@@ -299,6 +300,17 @@ async def debug_page(request: Request):
             "form_data": None,
             "result": None,
         },
+    )
+
+
+@router.get("/admin/llm", response_class=HTMLResponse)
+async def llm_page(request: Request):
+    if not _current_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "llm.html",
+        {"admin_username": _current_admin(request)},
     )
 
 
@@ -694,6 +706,7 @@ async def test_trigger(job_name: str, force_rerun: str | None = Form(None)):
         daily_progress_job,
         daily_push_job,
         nightly_backup_job,
+        sync_feishu_messages_job,
         weekly_quiz_job,
         weekly_report_job,
     )
@@ -706,18 +719,224 @@ async def test_trigger(job_name: str, force_rerun: str | None = Form(None)):
         "weekly_quiz": weekly_quiz_job,
         "nightly_backup": nightly_backup_job,
         "daily_friends": daily_friends_job,
+        "sync_feishu_messages": sync_feishu_messages_job,
     }
     job = job_map.get(job_name)
     if job is None:
         return _err(f"未知任务: {job_name}，可选: {', '.join(job_map)}")
     force_run = bool(force_rerun)
     try:
-        if job_name in {"daily_error_digest", "daily_progress", "weekly_report", "weekly_quiz"}:
+        if job_name in {"daily_error_digest", "daily_progress", "weekly_report", "weekly_quiz", "sync_feishu_messages"}:
             await job(target_date=None, force_run=force_run)
         elif job_name in {"daily_push", "daily_friends"}:
             await job(force_run=force_run)
         else:
             await job()
         return _ok(reply=f"{job_name} triggered")
+    except Exception as exc:
+        return _err(f"{exc.__class__.__name__}: {exc}")
+
+
+# ======================================================================
+# /api/llm/* — LLM 提示词测试 & 优化接口（无鉴权）
+# ======================================================================
+
+_VALID_PROMPT_NAMES = set(PromptsSettings.model_fields)
+
+
+@router.get("/api/llm/prompts")
+async def llm_get_prompts(request: Request, name: str | None = None):
+    container = await _container(request)
+    prompts = container.correction_provider._prompts
+    if name:
+        if name not in _VALID_PROMPT_NAMES:
+            return _err(f"未知提示词: {name}，可选: {', '.join(sorted(_VALID_PROMPT_NAMES))}")
+        return _ok({name: getattr(prompts, name)})
+    return _ok(prompts.model_dump())
+
+
+@router.put("/api/llm/prompts/{name}")
+async def llm_put_prompt(request: Request, name: str):
+    container = await _container(request)
+    if name not in _VALID_PROMPT_NAMES:
+        return _err(f"未知提示词: {name}，可选: {', '.join(sorted(_VALID_PROMPT_NAMES))}")
+    body = await request.json()
+    value = body.get("value")
+    if value is None:
+        return _err("需要 value 字段")
+    provider = container.correction_provider
+    setattr(provider._prompts, name, str(value))
+    # 同步到 friends_usecase
+    if container.friends_usecase is not None:
+        setattr(container.friends_usecase._prompts, name, str(value))
+    return _ok({name: getattr(provider._prompts, name)})
+
+
+@router.post("/api/llm/test")
+async def llm_test(request: Request):
+    container = await _container(request)
+    body = await request.json()
+    messages = body.get("messages")
+    if not messages:
+        return _err("需要 messages 字段")
+    try:
+        result = await container.correction_provider.raw_chat(
+            messages=messages,
+            temperature=float(body.get("temperature", 0.5)),
+            max_tokens=int(body.get("max_tokens", 500)),
+            response_format=body.get("response_format", "text"),
+            timeout=float(body["timeout"]) if body.get("timeout") else None,
+        )
+        return _ok({"response": result})
+    except Exception as exc:
+        return _err(f"{exc.__class__.__name__}: {exc}")
+
+
+_LLM_FUNCTION_NAMES = {
+    "correct", "improve-translation", "feedback",
+    "analyze-dialogue", "weekly-report", "daily-progress", "friends-analysis",
+}
+
+
+@router.post("/api/llm/functions/{name}")
+async def llm_function(request: Request, name: str):
+    if name not in _LLM_FUNCTION_NAMES:
+        return _err(f"未知函数: {name}，可选: {', '.join(sorted(_LLM_FUNCTION_NAMES))}")
+    container = await _container(request)
+    body = await request.json()
+    provider = container.correction_provider
+    prompts = provider._prompts
+
+    try:
+        if name == "correct":
+            text = body.get("text")
+            if not text:
+                return _err("需要 text 参数")
+            context = body.get("context")
+            system_prompt = body.get("system_prompt") or prompts.correction_system
+            user_prompt = f"上下文：{context or '无'}\n待纠错英文：{text}"
+            data = await provider._chat_json(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.2,
+                max_tokens=500,
+            )
+            return _ok({"function": name, "prompt_used": system_prompt, "result": data})
+
+        if name == "improve-translation":
+            source_text = body.get("source_text")
+            base_translation = body.get("base_translation")
+            if not source_text or not base_translation:
+                return _err("需要 source_text 和 base_translation 参数")
+            prompt_template = body.get("prompt_template") or prompts.improve_translation
+            prompt = prompt_template.format(
+                context=body.get("context") or "无",
+                source_text=source_text,
+                base_translation=base_translation,
+            )
+            result = await provider._chat_text(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=220,
+            )
+            return _ok({"function": name, "prompt_used": prompt, "result": result})
+
+        if name == "feedback":
+            content = body.get("content")
+            if not content:
+                return _err("需要 content 参数")
+            prompt_template = body.get("prompt_template") or prompts.task_feedback
+            prompt = prompt_template.format(content=content)
+            result = await provider._chat_text(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.5,
+                max_tokens=180,
+            )
+            return _ok({"function": name, "prompt_used": prompt, "result": result})
+
+        if name == "analyze-dialogue":
+            text = body.get("text")
+            if not text:
+                return _err("需要 text 参数")
+            source_kind = body.get("source_kind") or "group_chat"
+            system_prompt = body.get("system_prompt") or prompts.dialogue_analysis_system
+            user_prompt = f"来源：{source_kind}\n请分析下面的对话内容：\n{text}"
+            data = await provider._chat_json(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.2,
+                max_tokens=1200,
+            )
+            return _ok({"function": name, "prompt_used": system_prompt, "result": data})
+
+        if name == "weekly-report":
+            learning_days = body.get("learning_days")
+            task_completion_rate = body.get("task_completion_rate")
+            correction_count = body.get("correction_count")
+            level = body.get("level")
+            if any(v is None for v in [learning_days, task_completion_rate, correction_count, level]):
+                return _err("需要 learning_days, task_completion_rate, correction_count, level 参数")
+            prompt_template = body.get("prompt_template") or prompts.weekly_report_summary
+            prompt = prompt_template.format(
+                learning_days=learning_days,
+                task_completion_rate=task_completion_rate,
+                correction_count=correction_count,
+                level=level,
+            )
+            result = await provider._chat_text(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.5,
+                max_tokens=180,
+            )
+            return _ok({"function": name, "prompt_used": prompt, "result": result})
+
+        if name == "daily-progress":
+            required_fields = [
+                "task_status", "level_label", "english_attempt_count",
+                "target_hit_count", "correction_count", "today_task_completed",
+                "today_task_total", "mastery_label", "mastery_reason",
+            ]
+            missing = [f for f in required_fields if body.get(f) is None]
+            if missing:
+                return _err(f"缺少参数: {', '.join(missing)}")
+            prompt_template = body.get("prompt_template") or prompts.daily_progress_summary
+            prompt = prompt_template.format(
+                task_status=body["task_status"],
+                level_label=body["level_label"],
+                english_attempt_count=body["english_attempt_count"],
+                target_hit_count=body["target_hit_count"],
+                correction_count=body["correction_count"],
+                today_task_completed=body["today_task_completed"],
+                today_task_total=body["today_task_total"],
+                mastery_label=body["mastery_label"],
+                mastery_reason=body["mastery_reason"],
+            )
+            result = await provider._chat_text(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.5,
+                max_tokens=180,
+            )
+            return _ok({"function": name, "prompt_used": prompt, "result": result})
+
+        if name == "friends-analysis":
+            text = body.get("text")
+            if not text:
+                return _err("需要 text 参数")
+            system_prompt = body.get("system_prompt") or prompts.friends_analysis_system
+            data = await provider._chat_json(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": text},
+                ],
+                temperature=0.3,
+                max_tokens=1500,
+                timeout=60.0,
+            )
+            return _ok({"function": name, "prompt_used": system_prompt, "result": data})
+
     except Exception as exc:
         return _err(f"{exc.__class__.__name__}: {exc}")

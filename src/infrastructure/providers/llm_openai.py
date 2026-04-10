@@ -10,13 +10,23 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 
 from src.domain.value_objects.conversation import DialogueAnalysisResult, SpeakerFeedback
 from src.domain.value_objects.learning import CorrectionResult, ErrorPointPayload
+from src.infrastructure.settings.models import PromptsSettings
 
 
 class OpenAICompatibleProvider:
-    def __init__(self, *, api_key: str, base_url: str, model: str, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        model: str,
+        prompts: PromptsSettings | None = None,
+        timeout: float = 30.0,
+    ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._model = model
+        self._prompts = prompts or PromptsSettings()
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
 
@@ -33,25 +43,7 @@ class OpenAICompatibleProvider:
                 error_points=[],
             )
 
-        system_prompt = dedent(
-            """
-            你是英语学习助教。请严格返回 JSON，结构如下：
-            {
-              "corrected_text": "...",
-              "zh_translation": "...",
-              "natural_expression": "...",
-              "explanation": "...",
-              "error_points": [
-                {
-                  "error_type": "tense|article|preposition|word_choice|spelling|expression|grammar|agreement|natural_expression",
-                  "source_fragment": "...",
-                  "correct_fragment": "...",
-                  "explanation": "..."
-                }
-              ]
-            }
-            """
-        ).strip()
+        system_prompt = self._prompts.correction_system
 
         user_prompt = f"上下文：{context or '无'}\n待纠错英文：{text}"
         data = await self._chat_json(
@@ -90,15 +82,11 @@ class OpenAICompatibleProvider:
         if not self._api_key or not self._base_url or not self._model:
             return base_translation
 
-        prompt = dedent(
-            f"""
-            请将下面中文翻译优化为更自然的英文。
-            保持简洁，只返回优化后的英文。
-            上下文：{context or '无'}
-            中文：{source_text}
-            基础翻译：{base_translation}
-            """
-        ).strip()
+        prompt = self._prompts.improve_translation.format(
+            context=context or "无",
+            source_text=source_text,
+            base_translation=base_translation,
+        )
         return await self._chat_text(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
@@ -122,27 +110,7 @@ class OpenAICompatibleProvider:
                 source_kind=source_kind,
             )
 
-        system_prompt = dedent(
-            """
-            你是英语学习助教。请严格返回 JSON，结构如下：
-            {
-              "translated_dialogue": "...",
-              "speaker_feedbacks": [
-                {
-                  "speaker": "...",
-                  "overall_comment": "...",
-                  "issues": ["...", "..."]
-                }
-              ]
-            }
-
-            要求：
-            1. 保留原始对话顺序和说话人标识。
-            2. 如果原文已经是英文，只做轻微润色，不要改写语义。
-            3. 只指出语言表达、语法、用词、自然度问题。
-            4. 如果某个说话人没有明显问题，可以省略。
-            """
-        ).strip()
+        system_prompt = self._prompts.dialogue_analysis_system
         user_prompt = dedent(
             f"""
             来源：{source_kind}
@@ -410,6 +378,30 @@ class OpenAICompatibleProvider:
         return accumulated
 
     # ---- Non-streaming methods ----
+
+    async def raw_chat(
+        self,
+        *,
+        messages: list[dict],
+        temperature: float = 0.5,
+        max_tokens: int = 500,
+        response_format: str = "text",
+        timeout: float | None = None,
+    ) -> str | dict:
+        """Open-ended chat for prompt testing. Returns raw text or parsed JSON."""
+        if response_format == "json":
+            return await self._chat_json(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+        return await self._chat_text(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
 
     async def _chat_json(
         self,

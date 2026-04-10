@@ -144,3 +144,5 @@ UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`
 - Provider 缺少配置时走降级而非报错
 - 测试用轻量 stub 类注入依赖，数据库测试用 `tmp_path` 临时 SQLite，不依赖 mock 框架
 - Pillow 用于 QQ 渠道图片卡片渲染，飞书渠道不需要图片渲染
+- 测试飞书功能，使用测试群ID：FEISHU_TEST_GROUP
+- ubuntu@110.40.137.26 可以免密登录，我已经配置了私钥在远程服务器上面
