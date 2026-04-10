@@ -6,7 +6,6 @@ from datetime import date
 from src.domain.value_objects.messaging import CardDocument, CardSection, MessageEnvelope
 from src.infrastructure.providers.friends_transcript import FriendsTranscriptProvider
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
-from src.infrastructure.providers.translate_tencent import TencentTranslateProvider
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +18,9 @@ class FriendsUseCase:
         *,
         friends_provider: FriendsTranscriptProvider,
         llm_provider: OpenAICompatibleProvider,
-        translate_provider: TencentTranslateProvider,
     ) -> None:
         self._provider = friends_provider
         self._llm = llm_provider
-        self._translate = translate_provider
 
     async def build_daily_friends_envelope(self, *, biz_date: date, start_date: date) -> MessageEnvelope:
         segment = self._provider.get_segment(biz_date, start_date)

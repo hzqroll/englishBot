@@ -11,7 +11,7 @@ from src.application.message_intents import (
     extract_explicit_dialogue_analysis_text,
     is_recent_chat_analysis_request,
 )
-from src.application.message_usecases import MessageCommandContext
+from src.application.message_usecases import MessageCommandContext, MessageUseCase
 from src.domain.value_objects.learning import LanguageType
 from src.domain.value_objects.messaging import MessageEnvelope
 from src.infrastructure.auth.security import verify_password
@@ -35,8 +35,8 @@ def _provider_label(text: str, detected: LanguageType) -> str:
     if extract_explicit_dialogue_analysis_text(text) is not None or is_recent_chat_analysis_request(text):
         return "openai_compatible"
     if detected == LanguageType.ENGLISH:
-        return "language-tool+tencent"
-    return "tencent"
+        return "openai_compatible"
+    return "openai_compatible"
 
 
 def _count_delta(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
@@ -325,7 +325,7 @@ async def debug_submit(
     }
 
     try:
-        detected = await container.translate_provider.detect_language(message_text)
+        detected = MessageUseCase._detect_language(message_text)
         if should_persist:
             group = await container.identity_repo.ensure_group(group_id, "Admin Debug Group")
             user = await container.identity_repo.ensure_user(user_id, nickname)
@@ -376,12 +376,10 @@ async def debug_submit(
                     parts.append("\n🔍 错误点\n" + "\n".join(lines))
                 reply = "\n".join(parts)
             else:
-                translated = await container.translate_provider.translate(
+                translated_text = await container.correction_provider.translate_stream(
                     message_text,
-                    source_lang=detected,
-                    target_lang=LanguageType.ENGLISH,
                 )
-                reply = f"🌐 {translated.translated_text}"
+                reply = f"🌐 {translated_text}"
             mode = "dry_run_no_db"
             provider = _provider_label(message_text, detected)
             receipt = None

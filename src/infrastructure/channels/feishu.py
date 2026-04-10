@@ -6,6 +6,13 @@ import time
 from datetime import datetime, timezone
 
 import lark_oapi as lark
+from lark_oapi.api.cardkit.v1 import (
+    Card,
+    CreateCardRequest,
+    CreateCardRequestBody,
+    UpdateCardRequest,
+    UpdateCardRequestBody,
+)
 from lark_oapi.api.im.v1 import (
     CreateMessageRequest,
     CreateMessageRequestBody,
@@ -144,6 +151,158 @@ class FeishuChannel(ChannelAdapter):
             page_token = response.data.page_token
 
         return results
+
+    # ---- CardKit streaming card methods ----
+
+    async def create_streaming_card(self, chat_id: str, *, title: str = "English Bot") -> str | None:
+        """Create a CardKit card entity and send it as a message. Returns card_id or None."""
+        try:
+            return self._create_streaming_card_impl(chat_id, title)
+        except Exception:
+            logger.exception("create_streaming_card failed")
+            return None
+
+    def create_streaming_card_sync(self, chat_id: str, *, title: str = "English Bot") -> str | None:
+        """Synchronous version of create_streaming_card for use in sync callbacks."""
+        try:
+            return self._create_streaming_card_impl(chat_id, title)
+        except Exception:
+            logger.exception("create_streaming_card_sync failed")
+            return None
+
+    def _create_streaming_card_impl(self, chat_id: str, title: str) -> str | None:
+        card_data = json.dumps({
+            "schema": "2.0",
+            "config": {"update_multi": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": title},
+                "template": "blue",
+            },
+            "body": {
+                "direction": "vertical",
+                "elements": [{"tag": "markdown", "content": "🤔 正在思考..."}],
+            },
+        })
+        card_request = (
+            CreateCardRequest.builder()
+            .request_body(
+                CreateCardRequestBody.builder()
+                .type("card_json")
+                .data(card_data)
+                .build()
+            )
+            .build()
+        )
+        card_response = self._client.cardkit.v1.card.create(card_request)
+        if not card_response.success():
+            logger.error("CardKit create failed: code=%s msg=%s", card_response.code, card_response.msg)
+            return None
+
+        card_id = card_response.data.card_id
+
+        msg_request = (
+            CreateMessageRequest.builder()
+            .receive_id_type("chat_id")
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(chat_id)
+                .msg_type("interactive")
+                .content(json.dumps({"card_id": card_id}))
+                .build()
+            )
+            .build()
+        )
+        msg_response = self._client.im.v1.message.create(msg_request)
+        if not msg_response.success():
+            logger.error("CardKit send message failed: code=%s msg=%s", msg_response.code, msg_response.msg)
+            return None
+
+        return card_id
+
+    async def update_streaming_card(self, card_id: str, content: str, sequence: int) -> bool:
+        """Update streaming card with partial content. Best-effort, logs errors."""
+        return self._update_streaming_card_impl(card_id, content, sequence)
+
+    def update_streaming_card_sync(self, card_id: str, content: str, sequence: int) -> bool:
+        """Synchronous version for use in sync callbacks."""
+        return self._update_streaming_card_impl(card_id, content, sequence)
+
+    def _update_streaming_card_impl(self, card_id: str, content: str, sequence: int) -> bool:
+        try:
+            card_data = json.dumps({
+                "schema": "2.0",
+                "config": {"update_multi": True},
+                "header": {
+                    "title": {"tag": "plain_text", "content": "English Bot"},
+                    "template": "blue",
+                },
+                "body": {
+                    "direction": "vertical",
+                    "elements": [{"tag": "markdown", "content": content}],
+                },
+            })
+            request = (
+                UpdateCardRequest.builder()
+                .card_id(card_id)
+                .request_body(
+                    UpdateCardRequestBody.builder()
+                    .card(Card.builder().type("card_json").data(card_data).build())
+                    .sequence(sequence)
+                    .build()
+                )
+                .build()
+            )
+            response = self._client.cardkit.v1.card.update(request)
+            if not response.success():
+                logger.warning("CardKit update failed: seq=%s code=%s msg=%s", sequence, response.code, response.msg)
+                return False
+            return True
+        except Exception:
+            logger.exception("update_streaming_card failed seq=%s", sequence)
+            return False
+
+    async def finalize_streaming_card(self, card_id: str, reply: str, sequence: int) -> bool:
+        """Replace streaming card with final formatted result."""
+        # Split the reply into markdown-friendly sections
+        elements: list[dict] = []
+        for line in reply.split("\n"):
+            line = line.strip()
+            if line:
+                elements.append({"tag": "markdown", "content": line})
+
+        try:
+            card_data = json.dumps({
+                "schema": "2.0",
+                "config": {"update_multi": True},
+                "header": {
+                    "title": {"tag": "plain_text", "content": "English Bot"},
+                    "template": "blue",
+                },
+                "body": {
+                    "direction": "vertical",
+                    "padding": "12px 12px 12px 12px",
+                    "elements": elements or [{"tag": "markdown", "content": reply}],
+                },
+            })
+            request = (
+                UpdateCardRequest.builder()
+                .card_id(card_id)
+                .request_body(
+                    UpdateCardRequestBody.builder()
+                    .card(Card.builder().type("card_json").data(card_data).build())
+                    .sequence(sequence)
+                    .build()
+                )
+                .build()
+            )
+            response = self._client.cardkit.v1.card.update(request)
+            if not response.success():
+                logger.error("CardKit finalize failed: code=%s msg=%s", response.code, response.msg)
+                return False
+            return True
+        except Exception:
+            logger.exception("finalize_streaming_card failed")
+            return False
 
     def _render_card_document(self, doc: CardDocument) -> dict:
         """将 CardDocument 渲染为飞书互动卡片 JSON 2.0。"""

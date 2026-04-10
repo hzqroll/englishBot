@@ -7,22 +7,19 @@ from collections.abc import Callable
 from typing import Any
 
 from src.domain.services.error_taxonomy import label_error_type
-from src.domain.value_objects.learning import CorrectionResult, ErrorPointPayload, LanguageType
+from src.domain.value_objects.learning import CorrectionResult, ErrorPointPayload
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
-from src.infrastructure.providers.translate_tencent import TencentTranslateProvider
 
 
 class LanguageToolEnglishProvider:
     def __init__(
         self,
         *,
-        translate_provider: TencentTranslateProvider,
-        fallback_provider: OpenAICompatibleProvider | None = None,
+        llm_provider: OpenAICompatibleProvider,
         language: str = "en-US",
         tool_factory: Callable[[], Any] | None = None,
     ) -> None:
-        self._translate_provider = translate_provider
-        self._fallback_provider = fallback_provider
+        self._llm_provider = llm_provider
         self._language = language
         self._tool_factory = tool_factory or self._default_tool_factory
         self._tool: Any | None = None
@@ -35,17 +32,7 @@ class LanguageToolEnglishProvider:
         del context
         tool = await asyncio.to_thread(self._tool_or_none)
         if tool is None:
-            if self._fallback_provider is not None:
-                return await self._fallback_provider.correct_english(text)
-            return CorrectionResult(
-                original_text=text,
-                corrected_text=text,
-                zh_translation=text,
-                natural_expression=text,
-                explanation="LanguageTool 不可用，当前返回原文。",
-                provider="language-tool-unavailable",
-                error_points=[],
-            )
+            return await self._llm_provider.correct_english(text)
 
         matches = await asyncio.to_thread(tool.check, text)
         corrected_text = await asyncio.to_thread(tool.correct, text)
@@ -62,17 +49,17 @@ class LanguageToolEnglishProvider:
             zh_translation=zh_translation,
             natural_expression=corrected_text,
             explanation=explanation,
-            provider="language-tool+tencent",
+            provider="language-tool+llm",
             error_points=error_points,
         )
 
     async def _translate_to_chinese(self, text: str) -> str:
-        translated = await self._translate_provider.translate(
-            text,
-            source_lang=LanguageType.ENGLISH,
-            target_lang=LanguageType.CHINESE,
+        prompt = f"请将以下英文翻译为中文，只返回翻译结果：\n{text}"
+        return await self._llm_provider._chat_text(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=200,
         )
-        return translated.translated_text
 
     def _tool_or_none(self) -> Any | None:
         if self._tool is not None:

@@ -9,7 +9,7 @@ from src.application.message_usecases import MessageCommandContext, MessageUseCa
 from src.domain.services.error_points import ErrorAggregator
 from src.domain.services.review import ReviewScheduler
 from src.domain.value_objects.conversation import DialogueAnalysisResult, SpeakerFeedback
-from src.domain.value_objects.learning import CorrectionResult, LanguageType, TranslationResult
+from src.domain.value_objects.learning import CorrectionResult
 from src.infrastructure.cache.context_store import ContextStore
 from src.infrastructure.cache.group_dialogue_store import GroupDialogueStore
 
@@ -43,41 +43,6 @@ class _LearningRepoStub:
         return None
 
 
-class _TranslateProviderStub:
-    def __init__(self) -> None:
-        self.translate_calls: list[dict] = []
-
-    async def detect_language(self, text: str) -> LanguageType:
-        if any("\u4e00" <= char <= "\u9fff" for char in text):
-            return LanguageType.CHINESE
-        if any(char.isalpha() for char in text):
-            return LanguageType.ENGLISH
-        return LanguageType.UNKNOWN
-
-    async def translate(
-        self,
-        text: str,
-        *,
-        source_lang: LanguageType | None,
-        target_lang: LanguageType,
-    ) -> TranslationResult:
-        self.translate_calls.append(
-            {
-                "text": text,
-                "source_lang": source_lang,
-                "target_lang": target_lang,
-            }
-        )
-        rendered = f"EN::{text}" if target_lang == LanguageType.ENGLISH else f"ZH::{text}"
-        return TranslationResult(
-            source_text=text,
-            translated_text=rendered,
-            source_language=source_lang or LanguageType.UNKNOWN,
-            target_language=target_lang,
-            provider="tencent",
-        )
-
-
 class _EnglishCorrectionProviderStub:
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -90,7 +55,7 @@ class _EnglishCorrectionProviderStub:
             zh_translation="ZH::I like English.",
             natural_expression="I like English.",
             explanation="检测到 1 处可能问题：表达问题1处。",
-            provider="language-tool+tencent",
+            provider="openai_compatible",
             error_points=[],
         )
 
@@ -98,6 +63,8 @@ class _EnglishCorrectionProviderStub:
 class _LLMProviderStub:
     def __init__(self) -> None:
         self.analyze_calls: list[dict] = []
+        self.correct_calls: list[dict] = []
+        self.translate_calls: list[dict] = []
 
     async def analyze_dialogue(self, text: str, *, source_kind: str) -> DialogueAnalysisResult:
         self.analyze_calls.append({"text": text, "source_kind": source_kind})
@@ -113,19 +80,36 @@ class _LLMProviderStub:
             source_kind=source_kind,
         )
 
+    async def analyze_dialogue_stream(self, text: str, *, source_kind: str, on_chunk=None) -> DialogueAnalysisResult:
+        return await self.analyze_dialogue(text, source_kind=source_kind)
+
+    async def correct_english_stream(self, text: str, context: str | None = None, *, on_chunk=None) -> CorrectionResult:
+        self.correct_calls.append({"text": text, "context": context})
+        return CorrectionResult(
+            original_text=text,
+            corrected_text="I like English.",
+            zh_translation="ZH::I like English.",
+            natural_expression="I like English.",
+            explanation="检测到 1 处可能问题：表达问题1处。",
+            provider="openai_compatible",
+            error_points=[],
+        )
+
+    async def translate_stream(self, text: str, *, on_chunk=None) -> str:
+        self.translate_calls.append({"text": text})
+        return f"EN::{text}"
+
 
 def _build_usecase(
     *,
     group_dialogue_store: GroupDialogueStore | None = None,
-) -> tuple[MessageUseCase, _LearningRepoStub, _TranslateProviderStub, _EnglishCorrectionProviderStub, _LLMProviderStub]:
+) -> tuple[MessageUseCase, _LearningRepoStub, _EnglishCorrectionProviderStub, _LLMProviderStub]:
     learning_repo = _LearningRepoStub()
-    translate_provider = _TranslateProviderStub()
     english_provider = _EnglishCorrectionProviderStub()
     llm_provider = _LLMProviderStub()
     usecase = MessageUseCase(
         identity_repo=_IdentityRepoStub(),
         learning_repo=learning_repo,
-        translate_provider=translate_provider,
         english_correction_provider=english_provider,
         llm_provider=llm_provider,
         context_store=ContextStore(ttl_minutes=15),
@@ -134,12 +118,12 @@ def _build_usecase(
         review_scheduler=ReviewScheduler(),
         recent_chat_min_sentences=10,
     )
-    return usecase, learning_repo, translate_provider, english_provider, llm_provider
+    return usecase, learning_repo, english_provider, llm_provider
 
 
 @pytest.mark.asyncio
-async def test_plain_chinese_message_uses_tencent_translation_only() -> None:
-    usecase, learning_repo, _, english_provider, llm_provider = _build_usecase()
+async def test_plain_chinese_message_uses_llm_translation() -> None:
+    usecase, learning_repo, english_provider, llm_provider = _build_usecase()
 
     reply = await usecase.handle_at_message(
         MessageCommandContext(
@@ -154,13 +138,13 @@ async def test_plain_chinese_message_uses_tencent_translation_only() -> None:
 
     assert reply == "🌐 EN::你好，今天过得怎么样？"
     assert english_provider.calls == []
-    assert llm_provider.analyze_calls == []
-    assert learning_repo.interaction_results[-1]["provider"] == "tencent"
+    assert len(llm_provider.translate_calls) == 1
+    assert learning_repo.interaction_results[-1]["provider"] == "openai_compatible"
 
 
 @pytest.mark.asyncio
-async def test_plain_english_message_uses_language_tool_correction() -> None:
-    usecase, learning_repo, _, english_provider, llm_provider = _build_usecase()
+async def test_plain_english_message_uses_llm_correction_with_streaming() -> None:
+    usecase, learning_repo, english_provider, llm_provider = _build_usecase()
 
     reply = await usecase.handle_at_message(
         MessageCommandContext(
@@ -170,19 +154,40 @@ async def test_plain_english_message_uses_language_tool_correction() -> None:
             user_id="u1",
             nickname="tester",
             message_text="I very like English.",
-        )
+        ),
+        stream_callback=lambda _: None,
     )
 
     assert "✏️ I like English." in reply
     assert "📖 ZH::I like English." in reply
+    assert len(english_provider.calls) == 0  # stream path uses LLM directly
+    assert len(llm_provider.correct_calls) == 1
+    assert learning_repo.interaction_results[-1]["provider"] == "openai_compatible"
+
+
+@pytest.mark.asyncio
+async def test_plain_english_message_without_streaming_uses_correction_provider() -> None:
+    usecase, learning_repo, english_provider, llm_provider = _build_usecase()
+
+    reply = await usecase.handle_at_message(
+        MessageCommandContext(
+            raw_event_id="evt-2b",
+            group_id="g1",
+            group_name="group",
+            user_id="u1",
+            nickname="tester",
+            message_text="I very like English.",
+        )
+    )
+
+    assert "✏️ I like English." in reply
     assert len(english_provider.calls) == 1
-    assert llm_provider.analyze_calls == []
-    assert learning_repo.interaction_results[-1]["provider"] == "language-tool+tencent"
+    assert llm_provider.correct_calls == []
 
 
 @pytest.mark.asyncio
 async def test_explicit_dialogue_analysis_uses_llm() -> None:
-    usecase, learning_repo, _, english_provider, llm_provider = _build_usecase()
+    usecase, learning_repo, english_provider, llm_provider = _build_usecase()
 
     reply = await usecase.handle_at_message(
         MessageCommandContext(
@@ -214,7 +219,7 @@ async def test_recent_chat_analysis_requires_minimum_sentences() -> None:
         nickname="Alice",
         text="今天天气不错",
     )
-    usecase, learning_repo, _, _, llm_provider = _build_usecase(group_dialogue_store=group_dialogue_store)
+    usecase, learning_repo, _, llm_provider = _build_usecase(group_dialogue_store=group_dialogue_store)
 
     reply = await usecase.handle_at_message(
         MessageCommandContext(
@@ -242,7 +247,7 @@ async def test_recent_chat_analysis_uses_group_cache_when_threshold_met() -> Non
             nickname=f"user{idx}",
             text=f"第 {idx + 1} 句。",
         )
-    usecase, learning_repo, _, _, llm_provider = _build_usecase(group_dialogue_store=group_dialogue_store)
+    usecase, learning_repo, _, llm_provider = _build_usecase(group_dialogue_store=group_dialogue_store)
 
     reply = await usecase.handle_at_message(
         MessageCommandContext(

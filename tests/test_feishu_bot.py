@@ -29,13 +29,27 @@ class _FakeFeishuChannel:
     async def send_text(self, chat_id: str, text: str) -> None:
         self.sent_texts.append((chat_id, text))
 
+    def create_streaming_card_sync(self, chat_id: str, *, title: str = "English Bot") -> str | None:
+        return None  # streaming not available in test stub
+
+    def update_streaming_card_sync(self, card_id: str, content: str, sequence: int) -> bool:
+        return False
+
+    async def finalize_streaming_card(self, card_id: str, reply: str, sequence: int) -> bool:
+        return False
+
 
 class _ContainerStub:
     def __init__(self, *, enabled: bool = True) -> None:
         self.runtime_config = _RuntimeConfigStub(enabled=enabled)
         self.channels = {"feishu": _FakeFeishuChannel()}
-        self.message_usecase = SimpleNamespace(handle_at_message=None)
-        self.conversation_usecase = SimpleNamespace(observe_passive_group_message=None)
+        self.group_dialogue_store = SimpleNamespace(append_group_message=lambda **kw: None)
+
+        async def _handle_at_message(ctx, *, stream_callback=None):
+            return "mock reply"
+
+        self.message_usecase = SimpleNamespace(handle_at_message=_handle_at_message)
+        self.conversation_usecase = SimpleNamespace(observe_passive_group_message=lambda *a, **kw: None)
 
 
 def _build_bot(*, enabled_chat_ids: list[str] | None = None, main_loop=None) -> FeishuBot:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 
@@ -19,7 +21,6 @@ from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
 from src.infrastructure.providers.english_correction import EnglishCorrectionProvider
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
-from src.infrastructure.providers.translate_tencent import TencentTranslateProvider
 
 
 @dataclass(slots=True)
@@ -38,7 +39,6 @@ class MessageUseCase:
         *,
         identity_repo: IdentityRepository,
         learning_repo: LearningRepository,
-        translate_provider: TencentTranslateProvider,
         english_correction_provider: EnglishCorrectionProvider,
         llm_provider: OpenAICompatibleProvider,
         context_store: ContextStore,
@@ -49,7 +49,6 @@ class MessageUseCase:
     ) -> None:
         self._identity_repo = identity_repo
         self._learning_repo = learning_repo
-        self._translate_provider = translate_provider
         self._english_correction_provider = english_correction_provider
         self._llm_provider = llm_provider
         self._context_store = context_store
@@ -58,7 +57,20 @@ class MessageUseCase:
         self._review_scheduler = review_scheduler
         self._recent_chat_min_sentences = recent_chat_min_sentences
 
-    async def handle_at_message(self, ctx: MessageCommandContext) -> str:
+    @staticmethod
+    def _detect_language(text: str) -> LanguageType:
+        if re.search(r"[\u4e00-\u9fff]", text):
+            return LanguageType.CHINESE
+        if re.search(r"[A-Za-z]", text):
+            return LanguageType.ENGLISH
+        return LanguageType.UNKNOWN
+
+    async def handle_at_message(
+        self,
+        ctx: MessageCommandContext,
+        *,
+        stream_callback: Callable[[str], None] | None = None,
+    ) -> str:
         cleaned = ctx.message_text.strip()
         explicit_dialogue = extract_explicit_dialogue_analysis_text(cleaned)
         is_recent_dialogue_request = is_recent_chat_analysis_request(cleaned)
@@ -71,7 +83,7 @@ class MessageUseCase:
 
         group = await self._identity_repo.ensure_group(ctx.group_id, ctx.group_name)
         user = await self._identity_repo.ensure_user(ctx.user_id, ctx.nickname)
-        detected = await self._translate_provider.detect_language(language_sample)
+        detected = self._detect_language(language_sample)
         event = await self._learning_repo.create_message_event(
             raw_event_id=ctx.raw_event_id,
             group_id=group.id,
@@ -89,7 +101,12 @@ class MessageUseCase:
         success = True
 
         if explicit_dialogue is not None:
-            analysis = await self._llm_provider.analyze_dialogue(explicit_dialogue, source_kind="explicit_text")
+            if stream_callback is not None:
+                analysis = await self._llm_provider.analyze_dialogue_stream(
+                    explicit_dialogue, source_kind="explicit_text", on_chunk=stream_callback,
+                )
+            else:
+                analysis = await self._llm_provider.analyze_dialogue(explicit_dialogue, source_kind="explicit_text")
             reply = self._render_dialogue_analysis_reply(analysis)
             action_type = "dialogue_analysis_explicit"
             provider = "openai_compatible"
@@ -105,28 +122,41 @@ class MessageUseCase:
                 provider = "group-dialogue-cache"
                 success = False
             else:
-                analysis = await self._llm_provider.analyze_dialogue(
-                    dialogue_snapshot.rendered_text,
-                    source_kind="group_cache",
-                )
+                if stream_callback is not None:
+                    analysis = await self._llm_provider.analyze_dialogue_stream(
+                        dialogue_snapshot.rendered_text,
+                        source_kind="group_cache",
+                        on_chunk=stream_callback,
+                    )
+                else:
+                    analysis = await self._llm_provider.analyze_dialogue(
+                        dialogue_snapshot.rendered_text,
+                        source_kind="group_cache",
+                    )
                 reply = self._render_dialogue_analysis_reply(analysis)
                 action_type = "dialogue_analysis_group_cache"
                 provider = "openai_compatible"
         elif detected == LanguageType.ENGLISH:
-            correction = await self._english_correction_provider.correct_english(cleaned, context=context)
+            if stream_callback is not None:
+                correction = await self._llm_provider.correct_english_stream(
+                    cleaned, context=context, on_chunk=stream_callback,
+                )
+            else:
+                correction = await self._english_correction_provider.correct_english(cleaned, context=context)
             await self._persist_error_points(event.id, user.id, group.id, correction.error_points)
             reply = self._render_english_reply(correction)
             action_type = "english_correction"
             provider = correction.provider
         else:
-            translated = await self._translate_provider.translate(
-                cleaned,
-                source_lang=detected,
-                target_lang=LanguageType.ENGLISH,
-            )
-            reply = self._render_chinese_reply(translated_text=translated.translated_text)
+            if stream_callback is not None:
+                translated_text = await self._llm_provider.translate_stream(
+                    cleaned, on_chunk=stream_callback,
+                )
+            else:
+                translated_text = await self._llm_provider.translate_stream(cleaned)
+            reply = self._render_chinese_reply(translated_text=translated_text)
             action_type = "chinese_translation"
-            provider = translated.provider
+            provider = "openai_compatible"
 
         await self._learning_repo.create_interaction_result(
             event_id=event.id,

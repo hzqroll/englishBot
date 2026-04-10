@@ -34,7 +34,6 @@ from src.infrastructure.providers.curriculum_static import StaticCurriculumProvi
 from src.infrastructure.providers.english_language_tool import LanguageToolEnglishProvider
 from src.infrastructure.providers.friends_transcript import FriendsTranscriptProvider
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
-from src.infrastructure.providers.translate_tencent import TencentTranslateProvider
 from src.infrastructure.settings.loader import load_settings
 from src.infrastructure.settings.models import EffectiveSettings
 from src.infrastructure.settings.runtime import RuntimeConfigService
@@ -48,7 +47,6 @@ class ServiceContainer:
     identity_repo: IdentityRepository
     learning_repo: LearningRepository
     admin_repo: AdminRepository
-    translate_provider: TencentTranslateProvider
     english_correction_provider: LanguageToolEnglishProvider
     correction_provider: OpenAICompatibleProvider
     content_provider: StaticCurriculumProvider
@@ -89,20 +87,13 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
     identity_repo = IdentityRepository(session_factory)
     learning_repo = LearningRepository(session_factory)
     admin_repo = AdminRepository(session_factory)
-    translate_provider = TencentTranslateProvider(
-        secret_id=settings.runtime.tencent_translate_secret_id,
-        secret_key=settings.runtime.tencent_translate_secret_key,
-        region=settings.runtime.tencent_translate_region,
-        endpoint=settings.runtime.tencent_translate_endpoint,
-    )
     correction_provider = OpenAICompatibleProvider(
         api_key=settings.runtime.llm_api_key,
         base_url=settings.runtime.llm_base_url,
         model=settings.runtime.llm_model,
     )
     english_correction_provider = LanguageToolEnglishProvider(
-        translate_provider=translate_provider,
-        fallback_provider=correction_provider,
+        llm_provider=correction_provider,
     )
     content_provider = StaticCurriculumProvider(
         lexicon_path=settings.project_root / "resources" / "lexicon" / "bec_advanced.yaml",
@@ -127,7 +118,6 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
     message_usecase = MessageUseCase(
         identity_repo=identity_repo,
         learning_repo=learning_repo,
-        translate_provider=translate_provider,
         english_correction_provider=english_correction_provider,
         llm_provider=correction_provider,
         context_store=context_store,
@@ -179,7 +169,6 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         identity_repo=identity_repo,
         learning_repo=learning_repo,
         admin_repo=admin_repo,
-        translate_provider=translate_provider,
         english_correction_provider=english_correction_provider,
         correction_provider=correction_provider,
         content_provider=content_provider,
@@ -237,7 +226,6 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
             container.friends_usecase = FriendsUseCase(
                 friends_provider=friends_provider,
                 llm_provider=correction_provider,
-                translate_provider=translate_provider,
             )
             logger.info(
                 "friends feature enabled: %d segments loaded from %s",

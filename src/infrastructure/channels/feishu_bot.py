@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 from concurrent.futures import Future
 
 import lark_oapi as lark
@@ -150,7 +151,34 @@ class FeishuBot:
             )
             await channel.send_envelope(chat_id, envelope)
         elif is_analysis_control_text(text) or is_mention:
-            # 分析指令 / @机器人 → 翻译/纠错/润色
+            # 分析指令 / @机器人 → 翻译/纠错/润色 (流式卡片输出)
+            card_id: str | None = None
+            sequence = 0
+            last_update_time = 0.0
+
+            def _on_chunk(accumulated: str) -> None:
+                nonlocal card_id, sequence, last_update_time
+                now = time.monotonic()
+                if now - last_update_time < 0.2:  # throttle ~5 updates/sec
+                    return
+                if card_id is None:
+                    # Lazy card creation — only when first chunk arrives
+                    try:
+                        card_id_sync = channel.create_streaming_card_sync(chat_id)
+                        if card_id_sync:
+                            card_id = card_id_sync
+                    except Exception:
+                        logger.exception("feishu streaming card create failed")
+                        return
+                if card_id is None:
+                    return
+                sequence += 1
+                last_update_time = now
+                try:
+                    channel.update_streaming_card_sync(card_id, accumulated, sequence)
+                except Exception:
+                    logger.exception("feishu streaming card update failed seq=%s", sequence)
+
             reply = await container.message_usecase.handle_at_message(
                 MessageCommandContext(
                     raw_event_id=raw_event_id,
@@ -159,9 +187,19 @@ class FeishuBot:
                     user_id=user_id,
                     nickname=nickname,
                     message_text=text,
-                )
+                ),
+                stream_callback=_on_chunk,
             )
-            await channel.send_text(chat_id, reply)
+
+            if card_id is not None:
+                sequence += 1
+                try:
+                    await channel.finalize_streaming_card(card_id, reply, sequence)
+                except Exception:
+                    logger.exception("feishu streaming card finalize failed")
+                    await channel.send_text(chat_id, reply)
+            else:
+                await channel.send_text(chat_id, reply)
             # 用户消息写入对话缓存（机器人回复不进入缓存）
             container.group_dialogue_store.append_group_message(
                 group_id=chat_id, user_id=user_id, nickname=nickname, text=text,

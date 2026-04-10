@@ -6,31 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.domain.value_objects.learning import CorrectionResult, LanguageType
+from src.domain.value_objects.learning import CorrectionResult
 from src.infrastructure.providers.curriculum_static import StaticCurriculumProvider
 from src.infrastructure.providers.english_language_tool import LanguageToolEnglishProvider
 from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
-from src.infrastructure.providers.translate_tencent import TencentTranslateProvider
-
-
-@pytest.mark.asyncio
-async def test_tencent_translate_provider_falls_back_to_mock_without_credentials():
-    provider = TencentTranslateProvider(
-        secret_id="",
-        secret_key="",
-        region="ap-beijing",
-        endpoint="tmt.tencentcloudapi.com",
-    )
-    detected = await provider.detect_language("你好，world")
-    result = await provider.translate(
-        "你好",
-        source_lang=LanguageType.CHINESE,
-        target_lang=LanguageType.ENGLISH,
-    )
-
-    assert detected == LanguageType.CHINESE
-    assert result.provider == "tencent-mock"
-    assert result.translated_text.startswith("[mock:en]")
 
 
 @pytest.mark.asyncio
@@ -40,14 +19,16 @@ async def test_openai_compatible_provider_returns_mock_without_configuration():
     result = await provider.correct_english("I very like English.")
     feedback = await provider.generate_feedback("给一条鼓励反馈")
     analysis = await provider.analyze_dialogue("Alice：你好", source_kind="explicit_text")
+    translation = await provider.translate_stream("你好世界")
 
     assert result.provider == "openai-compatible-mock"
     assert "mock" in result.explanation
     assert feedback
     assert "[mock-en]" in analysis.translated_dialogue
+    assert "[mock-en]" in translation
 
 
-class _FallbackCorrectionProvider:
+class _FallbackLLMProvider:
     async def correct_english(self, text: str, context: str | None = None) -> CorrectionResult:
         return CorrectionResult(
             original_text=text,
@@ -58,6 +39,9 @@ class _FallbackCorrectionProvider:
             provider="fallback-provider",
             error_points=[],
         )
+
+    async def _chat_text(self, *, messages, temperature, max_tokens, timeout=None) -> str:
+        return "fallback zh translation"
 
 
 class _FakeLanguageTool:
@@ -79,16 +63,10 @@ class _FakeLanguageTool:
 
 
 @pytest.mark.asyncio
-async def test_language_tool_provider_falls_back_when_tool_unavailable():
-    translate_provider = TencentTranslateProvider(
-        secret_id="",
-        secret_key="",
-        region="ap-beijing",
-        endpoint="tmt.tencentcloudapi.com",
-    )
+async def test_language_tool_provider_falls_back_to_llm_when_tool_unavailable():
+    llm_provider = _FallbackLLMProvider()
     provider = LanguageToolEnglishProvider(
-        translate_provider=translate_provider,
-        fallback_provider=_FallbackCorrectionProvider(),
+        llm_provider=llm_provider,
         tool_factory=lambda: (_ for _ in ()).throw(RuntimeError("tool unavailable")),
     )
 
@@ -99,22 +77,17 @@ async def test_language_tool_provider_falls_back_when_tool_unavailable():
 
 @pytest.mark.asyncio
 async def test_language_tool_provider_maps_matches_into_correction_result():
-    translate_provider = TencentTranslateProvider(
-        secret_id="",
-        secret_key="",
-        region="ap-beijing",
-        endpoint="tmt.tencentcloudapi.com",
-    )
+    llm_provider = _FallbackLLMProvider()
     provider = LanguageToolEnglishProvider(
-        translate_provider=translate_provider,
+        llm_provider=llm_provider,
         tool_factory=lambda: _FakeLanguageTool(),
     )
 
     result = await provider.correct_english("I very like English.")
 
-    assert result.provider == "language-tool+tencent"
+    assert result.provider == "language-tool+llm"
     assert result.corrected_text == "I like English."
-    assert result.zh_translation.startswith("[mock:zh]")
+    assert "fallback zh" in result.zh_translation
     assert result.error_points[0].error_type == "natural_expression"
     assert result.error_points[0].correct_fragment == "like"
 
