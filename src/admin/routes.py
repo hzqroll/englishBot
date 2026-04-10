@@ -1,9 +1,13 @@
 from __future__ import annotations
+
+import asyncio
+import json
+import typing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, Form, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from src.application.learning_usecases import EnrollmentContext
@@ -797,9 +801,69 @@ _LLM_FUNCTION_NAMES = {
     "analyze-dialogue", "weekly-report", "daily-progress", "friends-analysis",
 }
 
+_LLM_JSON_FUNCTIONS = {"correct", "analyze-dialogue", "friends-analysis"}
+
+
+async def _stream_llm(
+    provider,
+    messages: list[dict],
+    temperature: float,
+    max_tokens: int,
+    name: str,
+    prompt_used: str,
+    is_json: bool = False,
+    timeout: float = 120.0,
+) -> typing.AsyncGenerator[str, None]:
+    """SSE async generator: streams LLM text chunks, sends parsed result on completion."""
+    queue: asyncio.Queue[tuple[str, typing.Any]] = asyncio.Queue()
+
+    def on_chunk(text: str) -> None:
+        queue.put_nowait(("chunk", text))
+
+    async def run() -> None:
+        try:
+            accumulated = await provider._chat_text_stream(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                on_chunk=on_chunk,
+                timeout=timeout,
+            )
+            result: typing.Any = accumulated
+            if is_json:
+                try:
+                    result = json.loads(provider._extract_json(accumulated))
+                except (json.JSONDecodeError, ValueError):
+                    result = {}
+            queue.put_nowait(("done", result))
+        except Exception as exc:
+            queue.put_nowait(("error", f"{exc.__class__.__name__}: {exc}"))
+
+    task = asyncio.create_task(run())
+    try:
+        while True:
+            event_type, data = await queue.get()
+            if event_type == "chunk":
+                yield f"data: {json.dumps({'type': 'chunk', 'content': data}, ensure_ascii=False)}\n\n"
+            elif event_type == "done":
+                payload = {
+                    "type": "done",
+                    "function": name,
+                    "prompt_used": prompt_used,
+                    "result": data,
+                }
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                break
+            elif event_type == "error":
+                yield f"data: {json.dumps({'type': 'error', 'error': data}, ensure_ascii=False)}\n\n"
+                break
+    finally:
+        if not task.done():
+            task.cancel()
+
 
 @router.post("/api/llm/functions/{name}")
-async def llm_function(request: Request, name: str):
+async def llm_function(request: Request, name: str, stream: bool = Query(False)):
     if name not in _LLM_FUNCTION_NAMES:
         return _err(f"未知函数: {name}，可选: {', '.join(sorted(_LLM_FUNCTION_NAMES))}")
     container = await _container(request)
@@ -815,14 +879,17 @@ async def llm_function(request: Request, name: str):
             context = body.get("context")
             system_prompt = body.get("system_prompt") or prompts.correction_system
             user_prompt = f"上下文：{context or '无'}\n待纠错英文：{text}"
-            data = await provider._chat_json(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.2,
-                max_tokens=500,
-            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            if stream:
+                return StreamingResponse(
+                    _stream_llm(provider, messages, 0.2, 500, name, system_prompt, is_json=True),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
+            data = await provider._chat_json(messages=messages, temperature=0.2, max_tokens=500, timeout=120.0)
             return _ok({"function": name, "prompt_used": system_prompt, "result": data})
 
         if name == "improve-translation":
@@ -836,10 +903,17 @@ async def llm_function(request: Request, name: str):
                 source_text=source_text,
                 base_translation=base_translation,
             )
+            if stream:
+                return StreamingResponse(
+                    _stream_llm(provider, [{"role": "user", "content": prompt}], 0.3, 220, name, prompt),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
             result = await provider._chat_text(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=220,
+                timeout=120.0,
             )
             return _ok({"function": name, "prompt_used": prompt, "result": result})
 
@@ -849,10 +923,17 @@ async def llm_function(request: Request, name: str):
                 return _err("需要 content 参数")
             prompt_template = body.get("prompt_template") or prompts.task_feedback
             prompt = prompt_template.format(content=content)
+            if stream:
+                return StreamingResponse(
+                    _stream_llm(provider, [{"role": "user", "content": prompt}], 0.5, 180, name, prompt),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
             result = await provider._chat_text(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
                 max_tokens=180,
+                timeout=120.0,
             )
             return _ok({"function": name, "prompt_used": prompt, "result": result})
 
@@ -863,14 +944,17 @@ async def llm_function(request: Request, name: str):
             source_kind = body.get("source_kind") or "group_chat"
             system_prompt = body.get("system_prompt") or prompts.dialogue_analysis_system
             user_prompt = f"来源：{source_kind}\n请分析下面的对话内容：\n{text}"
-            data = await provider._chat_json(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.2,
-                max_tokens=1200,
-            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            if stream:
+                return StreamingResponse(
+                    _stream_llm(provider, messages, 0.2, 1200, name, system_prompt, is_json=True),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
+            data = await provider._chat_json(messages=messages, temperature=0.2, max_tokens=1200, timeout=120.0)
             return _ok({"function": name, "prompt_used": system_prompt, "result": data})
 
         if name == "weekly-report":
@@ -887,10 +971,17 @@ async def llm_function(request: Request, name: str):
                 correction_count=correction_count,
                 level=level,
             )
+            if stream:
+                return StreamingResponse(
+                    _stream_llm(provider, [{"role": "user", "content": prompt}], 0.5, 180, name, prompt),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
             result = await provider._chat_text(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
                 max_tokens=180,
+                timeout=120.0,
             )
             return _ok({"function": name, "prompt_used": prompt, "result": result})
 
@@ -915,10 +1006,17 @@ async def llm_function(request: Request, name: str):
                 mastery_label=body["mastery_label"],
                 mastery_reason=body["mastery_reason"],
             )
+            if stream:
+                return StreamingResponse(
+                    _stream_llm(provider, [{"role": "user", "content": prompt}], 0.5, 180, name, prompt),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
             result = await provider._chat_text(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
                 max_tokens=180,
+                timeout=120.0,
             )
             return _ok({"function": name, "prompt_used": prompt, "result": result})
 
@@ -927,14 +1025,21 @@ async def llm_function(request: Request, name: str):
             if not text:
                 return _err("需要 text 参数")
             system_prompt = body.get("system_prompt") or prompts.friends_analysis_system
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text},
+            ]
+            if stream:
+                return StreamingResponse(
+                    _stream_llm(provider, messages, 0.3, 1500, name, system_prompt, is_json=True),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
             data = await provider._chat_json(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": text},
-                ],
+                messages=messages,
                 temperature=0.3,
                 max_tokens=1500,
-                timeout=60.0,
+                timeout=120.0,
             )
             return _ok({"function": name, "prompt_used": system_prompt, "result": data})
 

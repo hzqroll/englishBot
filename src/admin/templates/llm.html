@@ -1,0 +1,558 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="page-hero">
+  <div>
+    <p class="eyebrow">Prompt Lab</p>
+    <h2>LLM 提示词测试</h2>
+    <p class="hero-copy">测试和优化大模型提示词，选择功能、编辑提示词、查看返回结果。提示词修改仅保存在内存中，重启后恢复为 config.yaml 配置。</p>
+  </div>
+</header>
+
+<section class="split-layout">
+  <!-- Left: Form -->
+  <section class="panel stack-lg">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Function</p>
+        <h3>选择测试功能</h3>
+      </div>
+    </div>
+    <form id="llm-form" class="form-stack" novalidate>
+      <label class="field-label">功能</label>
+      <select id="fn-select" class="llm-select">
+        <option value="">-- 选择功能 --</option>
+        <option value="correct">英语纠错 (correct)</option>
+        <option value="improve-translation">翻译优化 (improve-translation)</option>
+        <option value="feedback">任务反馈 (feedback)</option>
+        <option value="analyze-dialogue">对话分析 (analyze-dialogue)</option>
+        <option value="weekly-report">周报摘要 (weekly-report)</option>
+        <option value="daily-progress">日进度摘要 (daily-progress)</option>
+        <option value="friends-analysis">Friends 分析 (friends-analysis)</option>
+        <option value="__free__">自由测试 (free chat)</option>
+      </select>
+
+      <!-- Dynamic params area -->
+      <div id="params-area"></div>
+
+      <!-- Prompt editor (always shown) -->
+      <div id="prompt-area" style="display:none">
+        <label class="field-label">提示词 <span id="prompt-hint" class="muted"></span></label>
+        <textarea id="prompt-editor" rows="6" placeholder="选择功能后自动加载当前提示词..."></textarea>
+      </div>
+
+      <!-- Free chat area -->
+      <div id="free-area" style="display:none">
+        <label class="field-label">Messages (JSON)</label>
+        <textarea id="free-messages" rows="8" placeholder='[{"role": "user", "content": "Hello"}]'></textarea>
+        <div class="llm-inline-fields">
+          <div>
+            <label class="field-label">temperature</label>
+            <input type="number" id="free-temp" value="0.5" step="0.1" min="0" max="2" />
+          </div>
+          <div>
+            <label class="field-label">max_tokens</label>
+            <input type="number" id="free-tokens" value="500" step="50" min="1" />
+          </div>
+          <div>
+            <label class="field-label">response_format</label>
+            <select id="free-format">
+              <option value="text">text</option>
+              <option value="json">json</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" id="submit-btn" disabled>发送请求</button>
+    </form>
+  </section>
+
+  <!-- Right: Results -->
+  <section class="stack-lg" id="result-area">
+    <section class="panel stack-lg">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Result</p>
+          <h3>返回结果</h3>
+        </div>
+        <p class="muted">选择功能并发送请求后查看结果</p>
+      </div>
+      <div id="result-meta" class="meta-grid" style="display:none"></div>
+      <div id="result-prompt-used" style="display:none">
+        <label class="field-label">实际发送的提示词</label>
+        <pre class="debug-result" id="prompt-used-text"></pre>
+      </div>
+      <div id="result-body" style="display:none">
+        <label class="field-label">LLM 响应</label>
+        <pre class="debug-result" id="result-text"></pre>
+      </div>
+      <div id="result-error" style="display:none">
+        <pre class="debug-result" style="color: var(--coral);" id="error-text"></pre>
+      </div>
+      <div id="result-placeholder">
+        <p class="muted" style="text-align:center;padding:40px 0;">尚未发送请求</p>
+      </div>
+    </section>
+
+    <!-- Prompt management -->
+    <section class="panel stack-lg">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Prompts</p>
+          <h3>提示词管理</h3>
+        </div>
+        <p class="muted">修改后直接保存到内存，重启恢复 config.yaml 值</p>
+      </div>
+      <div id="prompts-list" class="form-stack">
+        <p class="muted">加载中...</p>
+      </div>
+    </section>
+  </section>
+</section>
+
+<style>
+  .llm-select {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    background: var(--bg-soft);
+    font-size: 14px;
+    color: var(--ink);
+    font-family: inherit;
+  }
+  .llm-select:focus { outline: 2px solid var(--teal); outline-offset: -1px; }
+
+  #llm-form textarea,
+  #llm-form input[type="text"],
+  #llm-form input[type="number"] {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    background: var(--bg-soft);
+    font-size: 14px;
+    font-family: "Menlo", "Consolas", "PingFang SC", monospace;
+    color: var(--ink);
+    resize: vertical;
+  }
+  #llm-form textarea:focus,
+  #llm-form input:focus {
+    outline: 2px solid var(--teal);
+    outline-offset: -1px;
+  }
+
+  .llm-inline-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+  }
+
+  .prompt-edit-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: start;
+  }
+  .prompt-edit-row textarea {
+    font-size: 12px !important;
+    rows: 3;
+  }
+  .prompt-edit-row button {
+    white-space: nowrap;
+    align-self: end;
+  }
+
+  #submit-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+</style>
+
+<script>
+(function() {
+  const FN_SELECT = document.getElementById('fn-select');
+  const PARAMS_AREA = document.getElementById('params-area');
+  const PROMPT_AREA = document.getElementById('prompt-area');
+  const PROMPT_EDITOR = document.getElementById('prompt-editor');
+  const PROMPT_HINT = document.getElementById('prompt-hint');
+  const FREE_AREA = document.getElementById('free-area');
+  const SUBMIT_BTN = document.getElementById('submit-btn');
+  const FORM = document.getElementById('llm-form');
+  const RESULT_META = document.getElementById('result-meta');
+  const RESULT_PROMPT = document.getElementById('result-prompt-used');
+  const RESULT_BODY = document.getElementById('result-body');
+  const RESULT_ERROR = document.getElementById('result-error');
+  const RESULT_PLACEHOLDER = document.getElementById('result-placeholder');
+  const PROMPTS_LIST = document.getElementById('prompts-list');
+
+  // Current prompts cache
+  let currentPrompts = {};
+
+  // Function definitions: param fields and prompt key
+  const FN_DEFS = {
+    'correct': {
+      promptKey: 'correction_system',
+      promptLabel: 'system_prompt',
+      fields: [
+        { name: 'text', label: '待纠错英文', type: 'text', required: true, rows: 3, placeholder: 'I goes to school yesterday' },
+        { name: 'context', label: '上下文 (可选)', type: 'text', required: false, placeholder: '无' },
+      ],
+    },
+    'improve-translation': {
+      promptKey: 'improve_translation',
+      promptLabel: 'prompt_template',
+      fields: [
+        { name: 'source_text', label: '中文原文', type: 'text', required: true, rows: 2, placeholder: '今天我学到了预算相关的知识' },
+        { name: 'base_translation', label: '基础翻译', type: 'text', required: true, rows: 2, placeholder: 'Today I learned about budget.' },
+        { name: 'context', label: '上下文 (可选)', type: 'text', required: false, placeholder: '无' },
+      ],
+    },
+    'feedback': {
+      promptKey: 'task_feedback',
+      promptLabel: 'prompt_template',
+      fields: [
+        { name: 'content', label: '任务提交内容', type: 'text', required: true, rows: 3, placeholder: 'Today I learn about budget and finance. I think is important for business.' },
+      ],
+    },
+    'analyze-dialogue': {
+      promptKey: 'dialogue_analysis_system',
+      promptLabel: 'system_prompt',
+      fields: [
+        { name: 'text', label: '对话文本', type: 'text', required: true, rows: 4, placeholder: 'A: How are you?\nB: I am good, thanks!' },
+        { name: 'source_kind', label: '来源类型 (可选)', type: 'text', required: false, placeholder: 'group_chat' },
+      ],
+    },
+    'weekly-report': {
+      promptKey: 'weekly_report_summary',
+      promptLabel: 'prompt_template',
+      fields: [
+        { name: 'learning_days', label: '学习天数', type: 'number', required: true, placeholder: '5' },
+        { name: 'task_completion_rate', label: '任务完成率', type: 'text', required: true, placeholder: '80%' },
+        { name: 'correction_count', label: '纠错次数', type: 'number', required: true, placeholder: '12' },
+        { name: 'level', label: '等级', type: 'text', required: true, placeholder: 'intermediate' },
+      ],
+    },
+    'daily-progress': {
+      promptKey: 'daily_progress_summary',
+      promptLabel: 'prompt_template',
+      fields: [
+        { name: 'task_status', label: '任务状态', type: 'text', required: true, placeholder: '已完成今日任务' },
+        { name: 'level_label', label: '等级', type: 'text', required: true, placeholder: '初级' },
+        { name: 'english_attempt_count', label: '英语尝试数', type: 'number', required: true, placeholder: '8' },
+        { name: 'target_hit_count', label: '目标词命中数', type: 'number', required: true, placeholder: '3' },
+        { name: 'correction_count', label: '纠错次数', type: 'number', required: true, placeholder: '2' },
+        { name: 'today_task_completed', label: '已完成任务', type: 'number', required: true, placeholder: '1' },
+        { name: 'today_task_total', label: '总任务数', type: 'number', required: true, placeholder: '2' },
+        { name: 'mastery_label', label: '掌握度', type: 'text', required: true, placeholder: '基本掌握' },
+        { name: 'mastery_reason', label: '掌握度依据', type: 'text', required: true, placeholder: '本周完成率较高，纠错后改正积极' },
+      ],
+    },
+    'friends-analysis': {
+      promptKey: 'friends_analysis_system',
+      promptLabel: 'system_prompt',
+      fields: [
+        { name: 'text', label: '对话文本', type: 'text', required: true, rows: 4, placeholder: 'Monica: How you doing?\nJoey: Im fine!' },
+      ],
+    },
+  };
+
+  // Load prompts on page load
+  async function loadPrompts() {
+    try {
+      const resp = await fetch('/api/llm/prompts');
+      const data = await resp.json();
+      if (data.success) {
+        currentPrompts = data.data;
+        renderPromptsList();
+      }
+    } catch(e) {
+      PROMPTS_LIST.innerHTML = '<p style="color:var(--coral)">加载失败: ' + e.message + '</p>';
+    }
+  }
+
+  function renderPromptsList() {
+    const keys = Object.keys(currentPrompts);
+    if (!keys.length) {
+      PROMPTS_LIST.innerHTML = '<p class="muted">暂无提示词</p>';
+      return;
+    }
+    let html = '';
+    for (const key of keys) {
+      const val = currentPrompts[key];
+      const short = val.length > 80 ? val.substring(0, 80) + '...' : val;
+      html += '<div class="prompt-edit-row">';
+      html += '<div>';
+      html += '<label class="field-label">' + key + '</label>';
+      html += '<textarea id="prompt-' + key + '" rows="3">' + escHtml(val) + '</textarea>';
+      html += '</div>';
+      html += '<button type="button" onclick="window._savePrompt(\'' + key + '\')" style="margin-top:22px;padding:8px 16px;border-radius:var(--radius-md);background:var(--teal);color:#fff;border:none;cursor:pointer;font-size:13px;">保存</button>';
+      html += '</div>';
+    }
+    PROMPTS_LIST.innerHTML = html;
+  }
+
+  window._savePrompt = async function(key) {
+    const textarea = document.getElementById('prompt-' + key);
+    if (!textarea) return;
+    const value = textarea.value;
+    try {
+      const resp = await fetch('/api/llm/prompts/' + key, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({value}),
+      });
+      const data = await resp.json();
+      if (data.success) {
+        currentPrompts[key] = value;
+        // Also update the prompt editor if this key is currently shown
+        const fn = FN_SELECT.value;
+        if (fn && FN_DEFS[fn] && FN_DEFS[fn].promptKey === key) {
+          PROMPT_EDITOR.value = value;
+        }
+        textarea.style.borderColor = 'var(--teal)';
+        setTimeout(() => { textarea.style.borderColor = ''; }, 1500);
+      } else {
+        alert('保存失败: ' + data.error);
+      }
+    } catch(e) {
+      alert('保存失败: ' + e.message);
+    }
+  };
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Render param fields for a function
+  function renderParams(fn) {
+    const def = FN_DEFS[fn];
+    if (!def) { PARAMS_AREA.innerHTML = ''; return; }
+
+    let html = '';
+    for (const f of def.fields) {
+      html += '<label class="field-label">' + f.label + (f.required ? ' *' : '') + '</label>';
+      if (f.type === 'number') {
+        html += '<input type="number" name="param-' + f.name + '" placeholder="' + (f.placeholder || '') + '" ' + (f.required ? 'required' : '') + ' />';
+      } else {
+        html += '<textarea name="param-' + f.name + '" rows="' + (f.rows || 2) + '" placeholder="' + (f.placeholder || '') + '" ' + (f.required ? 'required' : '') + '></textarea>';
+      }
+    }
+    PARAMS_AREA.innerHTML = html;
+
+    // Load prompt into editor
+    PROMPT_AREA.style.display = '';
+    PROMPT_EDITOR.value = currentPrompts[def.promptKey] || '';
+    PROMPT_HINT.textContent = '(' + def.promptKey + ' — 可编辑覆盖)';
+  }
+
+  function clearResults() {
+    RESULT_META.style.display = 'none';
+    RESULT_PROMPT.style.display = 'none';
+    RESULT_BODY.style.display = 'none';
+    RESULT_ERROR.style.display = 'none';
+    RESULT_PLACEHOLDER.style.display = 'none';
+  }
+
+  function showResult(data) {
+    clearResults();
+    const d = data.data || {};
+    // Meta
+    if (data.success) {
+      RESULT_META.innerHTML = '<div class="meta-item"><span>功能</span><strong>' + escHtml(d.function || '') + '</strong></div>' +
+        '<div class="meta-item"><span>状态</span><strong style="color:var(--teal)">成功</strong></div>';
+    } else {
+      RESULT_META.innerHTML = '<div class="meta-item"><span>状态</span><strong style="color:var(--coral)">失败</strong></div>';
+      RESULT_ERROR.style.display = '';
+      document.getElementById('error-text').textContent = data.error || '未知错误';
+      RESULT_META.style.display = '';
+      return;
+    }
+    RESULT_META.style.display = '';
+
+    // Prompt used
+    if (d.prompt_used) {
+      RESULT_PROMPT.style.display = '';
+      document.getElementById('prompt-used-text').textContent = d.prompt_used;
+    }
+
+    // Result body
+    RESULT_BODY.style.display = '';
+    const result = d.result;
+    if (typeof result === 'object') {
+      document.getElementById('result-text').textContent = JSON.stringify(result, null, 2);
+    } else {
+      document.getElementById('result-text').textContent = String(result || '');
+    }
+  }
+
+  function showFreeResult(data) {
+    clearResults();
+    if (data.success) {
+      RESULT_META.innerHTML = '<div class="meta-item"><span>模式</span><strong>Free Chat</strong></div>' +
+        '<div class="meta-item"><span>状态</span><strong style="color:var(--teal)">成功</strong></div>';
+      RESULT_META.style.display = '';
+      RESULT_BODY.style.display = '';
+      const r = data.data && data.data.response;
+      if (typeof r === 'object') {
+        document.getElementById('result-text').textContent = JSON.stringify(r, null, 2);
+      } else {
+        document.getElementById('result-text').textContent = String(r || '');
+      }
+    } else {
+      RESULT_META.innerHTML = '<div class="meta-item"><span>状态</span><strong style="color:var(--coral)">失败</strong></div>';
+      RESULT_META.style.display = '';
+      RESULT_ERROR.style.display = '';
+      document.getElementById('error-text').textContent = data.error || '未知错误';
+    }
+  }
+
+  // Build request body from form
+  function buildBody(fn) {
+    const def = FN_DEFS[fn];
+    const body = {};
+
+    for (const f of def.fields) {
+      const el = document.querySelector('[name="param-' + f.name + '"]');
+      if (!el) continue;
+      body[f.name] = f.type === 'number' ? Number(el.value) : el.value;
+    }
+
+    // Add prompt override if edited
+    const editedPrompt = PROMPT_EDITOR.value;
+    const defaultPrompt = currentPrompts[def.promptKey] || '';
+    if (editedPrompt && editedPrompt !== defaultPrompt) {
+      body[def.promptLabel] = editedPrompt;
+    }
+
+    return body;
+  }
+
+  // Event: function select change
+  FN_SELECT.addEventListener('change', function() {
+    const fn = this.value;
+    PARAMS_AREA.innerHTML = '';
+    PROMPT_AREA.style.display = 'none';
+    FREE_AREA.style.display = 'none';
+    SUBMIT_BTN.disabled = !fn;
+
+    if (fn === '__free__') {
+      FREE_AREA.style.display = '';
+    } else if (FN_DEFS[fn]) {
+      renderParams(fn);
+    }
+  });
+
+  // Event: form submit
+  FORM.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const fn = FN_SELECT.value;
+    if (!fn) return;
+
+    SUBMIT_BTN.disabled = true;
+    SUBMIT_BTN.textContent = '请求中...';
+
+    try {
+      let resp;
+      if (fn === '__free__') {
+        const messages = document.getElementById('free-messages').value;
+        let parsed;
+        try { parsed = JSON.parse(messages); } catch(ex) {
+          alert('Messages 格式错误，需要合法 JSON 数组');
+          return;
+        }
+        resp = await fetch('/api/llm/test', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            messages: parsed,
+            temperature: parseFloat(document.getElementById('free-temp').value),
+            max_tokens: parseInt(document.getElementById('free-tokens').value),
+            response_format: document.getElementById('free-format').value,
+          }),
+        });
+        const data = await resp.json();
+        showFreeResult(data);
+      } else {
+        const body = buildBody(fn);
+        // Streaming request
+        resp = await fetch('/api/llm/functions/' + fn + '?stream=true', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalData = null;
+
+        // Show streaming area
+        clearResults();
+        RESULT_META.innerHTML = '<div class="meta-item"><span>功能</span><strong>' + escHtml(fn) + '</strong></div>' +
+          '<div class="meta-item"><span>状态</span><strong id="stream-status" style="color:var(--teal)">生成中...</strong></div>';
+        RESULT_META.style.display = '';
+        RESULT_BODY.style.display = '';
+        document.getElementById('result-text').textContent = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // keep incomplete line
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const evt = JSON.parse(line.slice(6));
+              if (evt.type === 'chunk') {
+                document.getElementById('result-text').textContent = evt.content;
+              } else if (evt.type === 'done') {
+                finalData = evt;
+              } else if (evt.type === 'error') {
+                clearResults();
+                RESULT_META.innerHTML = '<div class="meta-item"><span>状态</span><strong style="color:var(--coral)">失败</strong></div>';
+                RESULT_META.style.display = '';
+                RESULT_ERROR.style.display = '';
+                document.getElementById('error-text').textContent = evt.error;
+              }
+            } catch(ex) { /* skip malformed */ }
+          }
+        }
+
+        // Render final result with full structure
+        if (finalData) {
+          clearResults();
+          RESULT_META.innerHTML = '<div class="meta-item"><span>功能</span><strong>' + escHtml(finalData.function || fn) + '</strong></div>' +
+            '<div class="meta-item"><span>状态</span><strong style="color:var(--teal)">成功</strong></div>';
+          RESULT_META.style.display = '';
+          if (finalData.prompt_used) {
+            RESULT_PROMPT.style.display = '';
+            document.getElementById('prompt-used-text').textContent = finalData.prompt_used;
+          }
+          RESULT_BODY.style.display = '';
+          const result = finalData.result;
+          if (typeof result === 'object') {
+            document.getElementById('result-text').textContent = JSON.stringify(result, null, 2);
+          } else {
+            document.getElementById('result-text').textContent = String(result || '');
+          }
+        }
+      }
+    } catch(ex) {
+      clearResults();
+      RESULT_META.style.display = '';
+      RESULT_META.innerHTML = '<div class="meta-item"><span>状态</span><strong style="color:var(--coral)">网络错误</strong></div>';
+      RESULT_ERROR.style.display = '';
+      document.getElementById('error-text').textContent = ex.message;
+    } finally {
+      SUBMIT_BTN.disabled = false;
+      SUBMIT_BTN.textContent = '发送请求';
+    }
+  });
+
+  // Init
+  loadPrompts();
+})();
+</script>
+{% endblock %}

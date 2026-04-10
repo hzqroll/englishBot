@@ -333,6 +333,7 @@ class OpenAICompatibleProvider:
         temperature: float,
         max_tokens: int,
         on_chunk: Callable[[str], None] | None = None,
+        timeout: float | None = None,
     ) -> str:
         """Stream LLM response via SSE. Throttles on_chunk to ~5 calls/sec."""
         payload = {
@@ -349,7 +350,19 @@ class OpenAICompatibleProvider:
         accumulated = ""
         last_callback_time = 0.0
 
-        async with self._client_or_create().stream(
+        client: httpx.AsyncClient
+        if timeout is not None and timeout != self._timeout:
+            client = httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+                headers=headers,
+            )
+            should_close = True
+        else:
+            client = self._client_or_create()
+            should_close = False
+
+        async with client.stream(
             "POST", self._chat_completions_url(), json=payload, headers=headers,
         ) as response:
             response.raise_for_status()
@@ -375,6 +388,8 @@ class OpenAICompatibleProvider:
         # Final callback with complete text
         if on_chunk:
             on_chunk(accumulated)
+        if should_close:
+            await client.aclose()
         return accumulated
 
     # ---- Non-streaming methods ----
