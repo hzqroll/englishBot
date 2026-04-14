@@ -2,7 +2,7 @@
 
 import json
 
-from src.domain.value_objects.messaging import CardDocument, CardSection
+from src.domain.value_objects.messaging import CardDocument, CardSection, MessageEnvelope
 from src.infrastructure.channels.feishu import FeishuChannel
 
 
@@ -95,3 +95,90 @@ def test_card_json_serializable():
         card_json = renderer(doc)
         text = json.dumps(card_json, ensure_ascii=False)
         assert '"schema": "2.0"' in text
+
+
+def test_daily_session_card_uses_specialized_renderer():
+    ch = _make_channel()
+    envelope = MessageEnvelope(
+        plain_text="demo",
+        card_type="daily_session",
+        card_document=CardDocument(
+            title="Day 04/13 | 项目延期说明",
+            subtitle="语音日",
+            metadata={"chat_id": "oc_test", "biz_date": "2026-04-13"},
+            sections=[
+                CardSection(title="今日目标", lines=["今天练一轮真实工作场景互动。"]),
+                CardSection(title="今日角色", lines=["A 发起：Alice", "B 接棒：Bob"]),
+                CardSection(title="必须复用", lines=["Just a quick update on ..."]),
+                CardSection(title="今天动作", lines=["A 先发 2-3 句", "B 接棒追问 2 句"]),
+                CardSection(title="完成标准", lines=["至少完成 1 轮互动"]),
+            ],
+            footer_lines=["直接在群里开始。"],
+        ),
+    )
+
+    card_json = ch._render_envelope_card(envelope)
+    _assert_valid_json2(card_json)
+    elements = card_json["body"]["elements"]
+    hero_panels = [
+        el for el in elements
+        if el.get("tag") == "collapsible_panel" and "今天先做这一轮" in el.get("header", {}).get("title", {}).get("content", "")
+    ]
+    assert hero_panels, "daily_session 应走执行卡专用 renderer"
+    action_bars = [el for el in elements if el.get("tag") == "action"]
+    assert not action_bars, "schema 2.0 不支持 action tag"
+    action_rows = [el for el in elements if el.get("tag") == "column_set"]
+    assert action_rows, "执行卡应包含按钮行"
+    labels = [col["elements"][0]["text"]["content"] for col in action_rows[0]["columns"]]
+    assert labels == ["我先发起", "切到保底版", "查看本周文档"]
+    action_value = action_rows[0]["columns"][0]["elements"][0]["value"]
+    assert action_value["action"] == "claim_baton"
+    assert action_value["chat_id"] == "oc_test"
+    assert action_value["biz_date"] == "2026-04-13"
+
+
+def test_progress_card_uses_compact_sections():
+    ch = _make_channel()
+    envelope = MessageEnvelope(
+        plain_text="demo",
+        card_type="progress",
+        card_document=CardDocument(
+            title="今晚进展",
+            subtitle="A 已发起，等待 B 接棒。",
+            metadata={"chat_id": "oc_test", "biz_date": "2026-04-13"},
+            sections=[
+                CardSection(title="今天到了哪", lines=["A 已发起，等待 B 接棒。"]),
+                CardSection(title="学习证据", lines=["今天最像真实输出的一句：Could we reschedule the meeting?"]),
+                CardSection(title="下一步", lines=["B 追问、澄清或补充 2 句。"]),
+            ],
+        ),
+    )
+
+    card_json = ch._render_envelope_card(envelope)
+    _assert_valid_json2(card_json)
+    panels = [el for el in card_json["body"]["elements"] if el.get("tag") == "collapsible_panel"]
+    assert len(panels) == 3
+    action_rows = [el for el in card_json["body"]["elements"] if el.get("tag") == "column_set"]
+    assert action_rows
+    assert action_rows[0]["columns"][0]["elements"][0]["value"]["action"] == "open_week_doc"
+
+
+def test_session_reminder_card_has_followup_actions():
+    ch = _make_channel()
+    envelope = MessageEnvelope(
+        plain_text="demo",
+        card_type="session_reminder",
+        card_document=CardDocument(
+            title="中午接棒提醒",
+            subtitle="项目延期说明",
+            metadata={"chat_id": "oc_test", "biz_date": "2026-04-13"},
+            sections=[CardSection(title="现在该做什么", lines=["A：还没看到今天第一棒。"])],
+        ),
+    )
+
+    card_json = ch._render_envelope_card(envelope)
+    _assert_valid_json2(card_json)
+    action_rows = [el for el in card_json["body"]["elements"] if el.get("tag") == "column_set"]
+    assert action_rows
+    labels = [col["elements"][0]["text"]["content"] for col in action_rows[0]["columns"]]
+    assert labels == ["今晚再提醒我", "查看本周文档"]

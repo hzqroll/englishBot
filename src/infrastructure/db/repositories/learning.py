@@ -15,6 +15,7 @@ from src.infrastructure.db.models import (
     DailyCardSnapshot,
     DailyLesson,
     DailyLearningSnapshot,
+    DailySession,
     DailyTask,
     DailyTargetItem,
     Enrollment,
@@ -61,6 +62,7 @@ class LearningRepository:
         *,
         raw_event_id: str,
         group_id: int | None,
+        session_id: int | None,
         user_id: int,
         message_text: str,
         event_type: str,
@@ -80,6 +82,7 @@ class LearningRepository:
             message_event = MessageEvent(
                 raw_event_id=raw_event_id,
                 group_id=group_id,
+                session_id=session_id,
                 user_id=user_id,
                 message_text=message_text,
                 event_type=event_type,
@@ -94,6 +97,122 @@ class LearningRepository:
             await session.commit()
             await session.refresh(message_event)
             return message_event
+
+    async def get_daily_session(
+        self,
+        *,
+        group_id: int,
+        biz_date: date,
+    ) -> DailySession | None:
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(DailySession).where(
+                    DailySession.group_id == group_id,
+                    DailySession.biz_date == biz_date,
+                )
+            )
+
+    async def get_active_daily_session(
+        self,
+        *,
+        group_id: int,
+        biz_date: date,
+    ) -> DailySession | None:
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(DailySession)
+                .where(
+                    DailySession.group_id == group_id,
+                    DailySession.biz_date == biz_date,
+                    DailySession.status.in_(("active", "awaiting_role_b", "rescue", "benchmark_pending")),
+                )
+                .order_by(DailySession.id.desc())
+            )
+
+    async def list_recent_daily_sessions(
+        self,
+        *,
+        group_id: int,
+        before_date: date,
+        limit: int,
+    ) -> list[DailySession]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(DailySession)
+                .where(
+                    DailySession.group_id == group_id,
+                    DailySession.biz_date < before_date,
+                )
+                .order_by(DailySession.biz_date.desc(), DailySession.id.desc())
+                .limit(limit)
+            )
+            return list(rows)
+
+    async def upsert_daily_session(
+        self,
+        *,
+        group_id: int,
+        biz_date: date,
+        lesson_id: int | None,
+        title: str,
+        role_a_user_id: int | None,
+        role_a_label: str,
+        role_a_status: str,
+        role_b_user_id: int | None,
+        role_b_label: str,
+        role_b_status: str,
+        required_chunks_json: list[str],
+        capture_prompt: str,
+        rescue_mode: bool,
+        voice_required: bool,
+        benchmark_required: bool,
+        status: str,
+        summary_json: dict[str, Any] | None = None,
+    ) -> DailySession:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(DailySession).where(
+                    DailySession.group_id == group_id,
+                    DailySession.biz_date == biz_date,
+                )
+            )
+            if row is None:
+                row = DailySession(group_id=group_id, biz_date=biz_date)
+                session.add(row)
+            row.lesson_id = lesson_id
+            row.title = title
+            row.role_a_user_id = role_a_user_id
+            row.role_a_label = role_a_label
+            row.role_a_status = role_a_status
+            row.role_b_user_id = role_b_user_id
+            row.role_b_label = role_b_label
+            row.role_b_status = role_b_status
+            row.required_chunks_json = required_chunks_json
+            row.capture_prompt = capture_prompt
+            row.rescue_mode = rescue_mode
+            row.voice_required = voice_required
+            row.benchmark_required = benchmark_required
+            row.status = status
+            row.summary_json = summary_json or {}
+            await session.commit()
+            await session.refresh(row)
+            return row
+
+    async def update_daily_session(
+        self,
+        *,
+        session_id: int,
+        **kwargs: Any,
+    ) -> DailySession | None:
+        async with self._session_factory() as session:
+            row = await session.get(DailySession, session_id)
+            if row is None:
+                return None
+            for key, value in kwargs.items():
+                setattr(row, key, value)
+            await session.commit()
+            await session.refresh(row)
+            return row
 
     async def create_interaction_result(
         self,

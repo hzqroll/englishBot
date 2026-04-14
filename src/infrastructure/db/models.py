@@ -12,7 +12,7 @@ class User(Base, TimestampMixin):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    qq_user_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    open_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     nickname: Mapped[str] = mapped_column(String(128), default="")
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
@@ -22,10 +22,10 @@ class Group(Base, TimestampMixin):
     __tablename__ = "groups"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    qq_group_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    chat_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(128), default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    platform: Mapped[str] = mapped_column(String(32), default="onebot")
+    platform: Mapped[str] = mapped_column(String(32), default="feishu")
 
 
 class Enrollment(Base, TimestampMixin):
@@ -45,6 +45,7 @@ class MessageEvent(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     raw_event_id: Mapped[str] = mapped_column(String(64), index=True)
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id"), nullable=True)
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("daily_sessions.id"), nullable=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     message_text: Mapped[str] = mapped_column(Text)
     event_type: Mapped[str] = mapped_column(String(64), default="group_message")
@@ -189,10 +190,34 @@ class DailyLesson(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(255), default="")
     package_snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="published")
-    channel: Mapped[str] = mapped_column(String(32), default="onebot")
+    channel: Mapped[str] = mapped_column(String(32), default="feishu")
     push_status: Mapped[str] = mapped_column(String(32), default="pending")
     pushed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     summary_text: Mapped[str] = mapped_column(Text, default="")
+
+
+class DailySession(Base, TimestampMixin):
+    __tablename__ = "daily_sessions"
+    __table_args__ = (UniqueConstraint("biz_date", "group_id", name="uq_daily_sessions_biz_date_group"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    biz_date: Mapped[date] = mapped_column(Date, index=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    lesson_id: Mapped[int | None] = mapped_column(ForeignKey("daily_lessons.id"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(255), default="")
+    role_a_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    role_a_label: Mapped[str] = mapped_column(String(128), default="")
+    role_a_status: Mapped[str] = mapped_column(String(32), default="pending")
+    role_b_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    role_b_label: Mapped[str] = mapped_column(String(128), default="")
+    role_b_status: Mapped[str] = mapped_column(String(32), default="pending")
+    required_chunks_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    capture_prompt: Mapped[str] = mapped_column(Text, default="")
+    rescue_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    voice_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    benchmark_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    summary_json: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class DailyTargetItem(Base, TimestampMixin):
@@ -378,7 +403,7 @@ class GroupConfig(Base, TimestampMixin):
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
     key: Mapped[str] = mapped_column(String(128))
     value: Mapped[str] = mapped_column(Text)
-    channel: Mapped[str] = mapped_column(String(32), default="onebot")
+    channel: Mapped[str] = mapped_column(String(32), default="feishu")
 
 
 class AdminUser(Base, TimestampMixin):

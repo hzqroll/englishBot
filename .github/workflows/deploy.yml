@@ -1,8 +1,6 @@
-name: Deploy to Server
+name: Deploy to Server (Legacy Manual)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:

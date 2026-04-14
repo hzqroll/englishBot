@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
-from src.plugins.commands import handle_fixed_command_text
+from src.plugins.command_handlers import handle_fixed_command_text
 
 
-class _MessageUseCaseStub:
+class _ConversationUseCaseStub:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    async def handle_at_message(self, ctx):
+    async def record_command_message(self, ctx):
         self.calls.append(
             {
                 "raw_event_id": ctx.raw_event_id,
@@ -20,12 +18,6 @@ class _MessageUseCaseStub:
                 "message_text": ctx.message_text,
             }
         )
-        return "analysis result"
-
-
-class _ConversationUseCaseStub:
-    async def record_command_message(self, ctx):  # pragma: no cover - defensive
-        raise AssertionError("analysis control text should bypass command recording")
 
 
 class _RuntimeConfigStub:
@@ -36,12 +28,11 @@ class _RuntimeConfigStub:
 class _ContainerStub:
     def __init__(self) -> None:
         self.runtime_config = _RuntimeConfigStub()
-        self.message_usecase = _MessageUseCaseStub()
         self.conversation_usecase = _ConversationUseCaseStub()
 
 
 @pytest.mark.asyncio
-async def test_analysis_control_text_can_be_sent_without_at() -> None:
+async def test_help_command_uses_fixed_command_handler() -> None:
     container = _ContainerStub()
 
     envelope = await handle_fixed_command_text(
@@ -49,17 +40,18 @@ async def test_analysis_control_text_can_be_sent_without_at() -> None:
         group_name="demo",
         user_id="u1",
         nickname="tester",
-        text="分析最近聊天内容",
+        text="帮助",
         raw_event_id="evt-1",
         container=container,
     )
 
-    assert envelope.plain_text == "analysis result"
-    assert container.message_usecase.calls == [
+    assert "今日任务" in envelope.plain_text
+    assert "报名学习" not in envelope.plain_text
+    assert container.conversation_usecase.calls == [
         {
             "raw_event_id": "evt-1",
             "group_id": "g1",
             "user_id": "u1",
-            "message_text": "分析最近聊天内容",
+            "message_text": "帮助",
         }
     ]

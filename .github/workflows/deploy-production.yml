@@ -1,0 +1,64 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: "Optional custom release id"
+        required: false
+        type: string
+      keep_releases:
+        description: "How many releases to keep on server"
+        required: false
+        default: "10"
+        type: string
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Atomic Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        run: uv sync --python 3.12 --extra dev
+
+      - name: Run tests
+        run: .venv/bin/pytest -q
+
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy with atomic release script
+        env:
+          DEPLOY_HOST: ${{ secrets.SERVER_HOST }}
+          DEPLOY_USER: ${{ secrets.SERVER_USER }}
+          DEPLOY_BASE_DIR: ${{ secrets.DEPLOY_BASE_DIR }}
+          DEPLOY_RELEASE_ID: ${{ github.event.inputs.release_id }}
+          KEEP_RELEASES: ${{ github.event.inputs.keep_releases }}
+        run: |
+          ./deploy/scripts/deploy_remote.sh

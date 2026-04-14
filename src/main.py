@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
 
 import nonebot
 from fastapi.staticfiles import StaticFiles
-from nonebot import get_driver, load_plugin
-from nonebot.adapters.onebot.v11 import Adapter as OneBotV11Adapter
+from nonebot import get_driver
 from nonebot.drivers.fastapi import Driver as FastAPIDriver
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -31,22 +28,16 @@ nonebot.init(
     driver="~fastapi",
     host=settings.runtime.host,
     port=settings.runtime.port,
-    onebot_access_token=settings.runtime.access_token,
 )
 driver = get_driver()
 if not isinstance(driver, FastAPIDriver):
     raise RuntimeError("FastAPI driver is required.")
-driver.register_adapter(OneBotV11Adapter)
 
 app = driver.server_app
 app.state.settings = settings
 app.add_middleware(SessionMiddleware, secret_key=settings.runtime.secret_key)
 app.include_router(admin_router)
 app.mount("/admin/static", StaticFiles(directory=str(settings.static_dir)), name="admin-static")
-
-load_plugin("src.plugins.at_message")
-load_plugin("src.plugins.commands")
-load_plugin("src.plugins.passive_group_observer")
 
 
 driver = get_driver()

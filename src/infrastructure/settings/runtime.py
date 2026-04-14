@@ -31,27 +31,15 @@ class RuntimeConfigService:
                 self._group_cache[gc.group_id] = {}
             self._group_cache[gc.group_id][gc.key] = self._parse_value(gc.value)
 
-    def is_qq_enabled(self) -> bool:
-        return self._get("bot.enabled", self.settings.static.bot.enabled)
-
     def is_feishu_enabled(self) -> bool:
         return self._get("feishu.enabled", self.settings.static.feishu.enabled)
-
-    def enabled_group_ids(self) -> list[str]:
-        return self._get("bot.enabled_group_ids", self.settings.static.bot.enabled_group_ids)
-
-    def admin_group_ids(self) -> list[str]:
-        return self._get("bot.admin_group_ids", self.settings.static.bot.admin_group_ids)
 
     def feishu_enabled_group_ids(self) -> list[str]:
         return self._get("feishu.enabled_group_ids", self.settings.static.feishu.enabled_group_ids)
 
-    def is_enabled_chat(self, group_id: str) -> bool:
-        if group_id.startswith("oc_"):
-            enabled_ids = self.feishu_enabled_group_ids()
-        else:
-            enabled_ids = self.enabled_group_ids()
-        return not enabled_ids or group_id in enabled_ids
+    def is_enabled_chat(self, chat_id: str) -> bool:
+        enabled_ids = self.feishu_enabled_group_ids()
+        return not enabled_ids or chat_id in enabled_ids
 
     def daily_review_insert_count(self) -> int:
         return self._get("learning.daily_review_insert_count", self.settings.static.learning.daily_review_insert_count)
@@ -62,34 +50,17 @@ class RuntimeConfigService:
     def weekly_quiz_review_ratio(self) -> float:
         return self._get("learning.weekly_quiz_review_ratio", self.settings.static.learning.weekly_quiz_review_ratio)
 
-    def render_mode(self) -> str:
-        return self._get("message.render_mode", self.settings.static.message.render_mode)
-
-    def enable_task_cards(self) -> bool:
-        return self._get("message.enable_task_cards", self.settings.static.message.enable_task_cards)
-
-    def card_fallback_to_text(self) -> bool:
-        return self._get("message.card_fallback_to_text", self.settings.static.message.card_fallback_to_text)
-
     def group_dialogue_trigger_min_sentences(self) -> int:
         return self._get(
             "message.group_dialogue_trigger_min_sentences",
-            self.settings.static.message.group_dialogue_trigger_min_sentences,
+            self.settings.static.feishu.context_ttl_minutes,
         )
-
-    def render_mode_for_group(self, group_id: str) -> str:
-        try:
-            gid = int(group_id)
-        except (ValueError, TypeError):
-            return self.render_mode()
-        group_overrides = self._group_cache.get(gid)
-        if group_overrides and "message.render_mode" in group_overrides:
-            return group_overrides["message.render_mode"]
-        return self.render_mode()
 
     def cron(self, key: str) -> str:
         defaults = {
             "scheduler.daily_push_cron": self.settings.static.scheduler.daily_push_cron,
+            "scheduler.midday_baton_cron": self.settings.static.scheduler.midday_baton_cron,
+            "scheduler.evening_baton_cron": self.settings.static.scheduler.evening_baton_cron,
             "scheduler.daily_error_digest_cron": self.settings.static.scheduler.daily_error_digest_cron,
             "scheduler.daily_progress_cron": self.settings.static.scheduler.daily_progress_cron,
             "scheduler.weekly_report_cron": self.settings.static.scheduler.weekly_report_cron,
@@ -102,19 +73,14 @@ class RuntimeConfigService:
 
     def effective_settings(self) -> dict[str, Any]:
         return {
-            "bot.enabled": self.is_qq_enabled(),
-            "bot.enabled_group_ids": self.enabled_group_ids(),
-            "bot.admin_group_ids": self.admin_group_ids(),
             "feishu.enabled": self.is_feishu_enabled(),
             "feishu.enabled_group_ids": self.feishu_enabled_group_ids(),
             "learning.daily_review_insert_count": self.daily_review_insert_count(),
             "learning.weekly_quiz_question_count": self.weekly_quiz_question_count(),
             "learning.weekly_quiz_review_ratio": self.weekly_quiz_review_ratio(),
-            "message.render_mode": self.render_mode(),
-            "message.enable_task_cards": self.enable_task_cards(),
-            "message.card_fallback_to_text": self.card_fallback_to_text(),
-            "message.group_dialogue_trigger_min_sentences": self.group_dialogue_trigger_min_sentences(),
             "scheduler.daily_push_cron": self.cron("scheduler.daily_push_cron"),
+            "scheduler.midday_baton_cron": self.cron("scheduler.midday_baton_cron"),
+            "scheduler.evening_baton_cron": self.cron("scheduler.evening_baton_cron"),
             "scheduler.daily_error_digest_cron": self.cron("scheduler.daily_error_digest_cron"),
             "scheduler.daily_progress_cron": self.cron("scheduler.daily_progress_cron"),
             "scheduler.weekly_report_cron": self.cron("scheduler.weekly_report_cron"),

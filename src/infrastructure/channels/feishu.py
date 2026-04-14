@@ -76,10 +76,7 @@ class FeishuChannel(ChannelAdapter):
             try:
                 if mention_user:
                     await self.send_text(chat_id, "请查看今天的学习卡片。", mention_user=mention_user)
-                if envelope.card_type == "daily_lesson":
-                    card_json = self._render_task_card(envelope.card_document)
-                else:
-                    card_json = self._render_card_document(envelope.card_document)
+                card_json = self._render_envelope_card(envelope)
                 request = (
                     CreateMessageRequest.builder()
                     .receive_id_type("chat_id")
@@ -101,6 +98,23 @@ class FeishuChannel(ChannelAdapter):
 
         text = envelope.delivery_text()
         return await self.send_text(chat_id, text, mention_user=mention_user)
+
+    def _render_envelope_card(self, envelope: MessageEnvelope) -> dict:
+        doc = envelope.card_document
+        assert doc is not None
+        if envelope.card_type == "daily_lesson":
+            return self._render_task_card(doc)
+        if envelope.card_type == "daily_session":
+            return self._render_daily_session_card(doc)
+        if envelope.card_type == "session_reminder":
+            return self._render_session_reminder_card(doc)
+        if envelope.card_type == "progress":
+            return self._render_progress_card(doc)
+        if envelope.card_type == "error_digest":
+            return self._render_error_digest_card(doc)
+        if envelope.card_type == "weekly_report":
+            return self._render_weekly_report_card(doc)
+        return self._render_card_document(doc)
 
     async def get_chat_messages(self, chat_id: str, since: datetime, limit: int = 50) -> list[MessageContext]:
         start_time = str(int(since.timestamp()))
@@ -173,14 +187,22 @@ class FeishuChannel(ChannelAdapter):
     def _create_streaming_card_impl(self, chat_id: str, title: str) -> str | None:
         card_data = json.dumps({
             "schema": "2.0",
-            "config": {"update_multi": True},
+            "config": {
+                "update_multi": True,
+                "streaming_mode": True,
+                "summary": {"content": ""},
+                "streaming_config": {
+                    "print_frequency_ms": {"default": 50},
+                    "print_step": {"default": 1},
+                    "print_strategy": "fast",
+                },
+            },
             "header": {
                 "title": {"tag": "plain_text", "content": title},
                 "template": "blue",
             },
             "body": {
-                "direction": "vertical",
-                "elements": [{"tag": "markdown", "content": "🤔 正在思考..."}],
+                "elements": [{"tag": "markdown", "content": "🤔 正在思考...", "element_id": "streaming_text"}],
             },
         })
         card_request = (
@@ -207,7 +229,7 @@ class FeishuChannel(ChannelAdapter):
                 CreateMessageRequestBody.builder()
                 .receive_id(chat_id)
                 .msg_type("interactive")
-                .content(json.dumps({"card_id": card_id}))
+                .content(json.dumps({"type": "card", "data": {"card_id": card_id}}))
                 .build()
             )
             .build()
@@ -237,8 +259,7 @@ class FeishuChannel(ChannelAdapter):
                     "template": "blue",
                 },
                 "body": {
-                    "direction": "vertical",
-                    "elements": [{"tag": "markdown", "content": content}],
+                    "elements": [{"tag": "markdown", "content": content, "element_id": "streaming_text"}],
                 },
             })
             request = (
@@ -279,9 +300,7 @@ class FeishuChannel(ChannelAdapter):
                     "template": "blue",
                 },
                 "body": {
-                    "direction": "vertical",
-                    "padding": "12px 12px 12px 12px",
-                    "elements": elements or [{"tag": "markdown", "content": reply}],
+                    "elements": elements or [{"tag": "markdown", "content": reply, "element_id": "streaming_text"}],
                 },
             })
             request = (
@@ -329,12 +348,214 @@ class FeishuChannel(ChannelAdapter):
         header = {
             "template": {"blue": "blue", "green": "green", "amber": "orange"}.get(doc.theme, "blue"),
             "title": {"tag": "plain_text", "content": doc.title},
-            "subtitle": {"tag": "plain_text", "content": "English Learning Bot"},
+            "subtitle": {"tag": "plain_text", "content": "B2 Sprint"},
         }
 
         return {
             "schema": "2.0",
             "header": {**header, "padding": "12px 12px 12px 12px"},
+            "body": {
+                "direction": "vertical",
+                "padding": "12px 12px 12px 12px",
+                "elements": elements,
+            },
+        }
+
+    @staticmethod
+    def _build_header(doc: CardDocument) -> dict:
+        return {
+            "template": {"blue": "blue", "green": "green", "amber": "orange"}.get(doc.theme, "blue"),
+            "title": {"tag": "plain_text", "content": doc.title},
+            "subtitle": {"tag": "plain_text", "content": "B2 Sprint"},
+            "padding": "12px 12px 12px 12px",
+        }
+
+    @staticmethod
+    def _markdown(text: str) -> dict:
+        return {"tag": "markdown", "content": text}
+
+    @staticmethod
+    def _action_value(doc: CardDocument, action: str) -> dict[str, str]:
+        value = dict(doc.metadata or {})
+        value["action"] = action
+        return value
+
+    def _button(self, *, label: str, action: str, doc: CardDocument, button_type: str = "default") -> dict:
+        return {
+            "tag": "button",
+            "text": {"tag": "plain_text", "content": label},
+            "type": button_type,
+            "value": self._action_value(doc, action),
+        }
+
+    def _actions_bar(self, actions: list[dict]) -> dict:
+        columns = [
+            {
+                "tag": "column",
+                "width": "weighted",
+                "weight": 1,
+                "elements": [action],
+                "vertical_align": "top",
+            }
+            for action in actions
+        ]
+        return {
+            "tag": "column_set",
+            "horizontal_spacing": "8px",
+            "horizontal_align": "left",
+            "columns": columns,
+        }
+
+    def _section_panel(
+        self,
+        *,
+        title: str,
+        lines: list[str],
+        expanded: bool = True,
+    ) -> dict:
+        return self._collapsible_panel(
+            title=f"**{title}**",
+            elements=[self._markdown(line) for line in lines],
+            expanded=expanded,
+        )
+
+    @staticmethod
+    def _find_section(doc: CardDocument, title: str) -> CardSection | None:
+        for section in doc.sections:
+            if section.title == title:
+                return section
+        return None
+
+    def _render_daily_session_card(self, doc: CardDocument) -> dict:
+        goal = self._find_section(doc, "今日目标")
+        roles = self._find_section(doc, "今日角色")
+        reuse = self._find_section(doc, "必须复用")
+        actions = self._find_section(doc, "今天动作")
+        completion = self._find_section(doc, "完成标准")
+
+        elements: list[dict] = []
+        if doc.subtitle:
+            elements.append(self._markdown(f"<font color='grey'>{doc.subtitle}</font>"))
+        if goal or actions:
+            hero_lines = []
+            if goal:
+                hero_lines.extend(goal.lines)
+            if actions:
+                hero_lines.append("")
+                hero_lines.extend(actions.lines)
+            elements.append(self._section_panel(title="今天先做这一轮", lines=hero_lines, expanded=True))
+        if roles:
+            elements.append(self._section_panel(title="角色分工", lines=roles.lines, expanded=True))
+        if reuse:
+            elements.append(self._section_panel(title="必须复用", lines=reuse.lines, expanded=True))
+        if completion:
+            elements.append(self._section_panel(title="完成标准", lines=completion.lines, expanded=False))
+        elements.append(
+            self._actions_bar(
+                [
+                    self._button(label="我先发起", action="claim_baton", doc=doc, button_type="primary"),
+                    self._button(label="切到保底版", action="enter_rescue", doc=doc),
+                    self._button(label="查看本周文档", action="open_week_doc", doc=doc),
+                ]
+            )
+        )
+        if doc.footer_lines:
+            elements.append({"tag": "hr"})
+            for line in doc.footer_lines:
+                elements.append(self._markdown(f"<font color='grey'>{line}</font>"))
+        return {
+            "schema": "2.0",
+            "header": self._build_header(doc),
+            "body": {
+                "direction": "vertical",
+                "padding": "12px 12px 12px 12px",
+                "elements": elements,
+            },
+        }
+
+    def _render_session_reminder_card(self, doc: CardDocument) -> dict:
+        current = doc.sections[0] if doc.sections else CardSection(title="现在该做什么", lines=[])
+        elements: list[dict] = []
+        if doc.subtitle:
+            elements.append(self._markdown(f"<font color='grey'>{doc.subtitle}</font>"))
+        elements.append(self._section_panel(title=current.title or "现在该做什么", lines=current.lines, expanded=True))
+        elements.append(
+            self._actions_bar(
+                [
+                    self._button(label="今晚再提醒我", action="remind_later", doc=doc),
+                    self._button(label="查看本周文档", action="open_week_doc", doc=doc),
+                ]
+            )
+        )
+        if doc.footer_lines:
+            for line in doc.footer_lines:
+                elements.append(self._markdown(f"<font color='grey'>{line}</font>"))
+        return {
+            "schema": "2.0",
+            "header": self._build_header(doc),
+            "body": {
+                "direction": "vertical",
+                "padding": "12px 12px 12px 12px",
+                "elements": elements,
+            },
+        }
+
+    def _render_progress_card(self, doc: CardDocument) -> dict:
+        elements: list[dict] = []
+        if doc.subtitle:
+            elements.append(self._markdown(f"**{doc.subtitle}**"))
+        for index, section in enumerate(doc.sections):
+            elements.append(self._section_panel(title=section.title or f"区块 {index + 1}", lines=section.lines, expanded=True))
+        elements.append(self._actions_bar([self._button(label="查看本周文档", action="open_week_doc", doc=doc)]))
+        if doc.footer_lines:
+            elements.append({"tag": "hr"})
+            for line in doc.footer_lines:
+                elements.append(self._markdown(f"<font color='grey'>{line}</font>"))
+        return {
+            "schema": "2.0",
+            "header": self._build_header(doc),
+            "body": {
+                "direction": "vertical",
+                "padding": "12px 12px 12px 12px",
+                "elements": elements,
+            },
+        }
+
+    def _render_error_digest_card(self, doc: CardDocument) -> dict:
+        elements: list[dict] = []
+        if doc.subtitle:
+            elements.append(self._markdown(f"<font color='grey'>{doc.subtitle}</font>"))
+        for section in doc.sections:
+            elements.append(self._section_panel(title=section.title or "", lines=section.lines, expanded=True))
+        elements.append(self._actions_bar([self._button(label="查看本周文档", action="open_week_doc", doc=doc)]))
+        if doc.footer_lines:
+            elements.append({"tag": "hr"})
+            for line in doc.footer_lines:
+                elements.append(self._markdown(f"<font color='grey'>{line}</font>"))
+        return {
+            "schema": "2.0",
+            "header": self._build_header(doc),
+            "body": {
+                "direction": "vertical",
+                "padding": "12px 12px 12px 12px",
+                "elements": elements,
+            },
+        }
+
+    def _render_weekly_report_card(self, doc: CardDocument) -> dict:
+        elements: list[dict] = []
+        if doc.subtitle:
+            elements.append(self._markdown(f"<font color='grey'>{doc.subtitle}</font>"))
+        for section in doc.sections:
+            elements.append(self._section_panel(title=section.title or "", lines=section.lines, expanded=False))
+        elements.append(self._actions_bar([self._button(label="查看本周文档", action="open_week_doc", doc=doc)]))
+        if doc.footer_lines:
+            elements.append({"tag": "hr"})
+            for line in doc.footer_lines:
+                elements.append(self._markdown(f"<font color='grey'>{line}</font>"))
+        return {
+            "schema": "2.0",
+            "header": self._build_header(doc),
             "body": {
                 "direction": "vertical",
                 "padding": "12px 12px 12px 12px",
@@ -495,7 +716,7 @@ class FeishuChannel(ChannelAdapter):
         header = {
             "template": {"blue": "blue", "green": "green", "amber": "orange"}.get(doc.theme, "blue"),
             "title": {"tag": "plain_text", "content": doc.title},
-            "subtitle": {"tag": "plain_text", "content": "English Learning Bot"},
+            "subtitle": {"tag": "plain_text", "content": "B2 Sprint"},
         }
 
         return {

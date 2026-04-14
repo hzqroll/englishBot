@@ -19,22 +19,6 @@ services:
       retries: 5
       start_period: 20s
 
-  napcat:
-    image: mlikiowa/napcat-docker:latest
-    container_name: english-bot-napcat
-    restart: unless-stopped
-    environment:
-      NAPCAT_GID: "${NAPCAT_GID:-1000}"
-      NAPCAT_UID: "${NAPCAT_UID:-1000}"
-    volumes:
-      - ../data/napcat:/app/napcat/config
-      - ../data/napcat-qq:/app/.config/QQ
-      - ../data/napcat-cache:/app/napcat/cache
-    ports:
-      - "${NAPCAT_WEBUI_PORT:-6099}:6099"
-    depends_on:
-      - bot-app
-
   caddy:
     image: caddy:2.8-alpine
     container_name: english-bot-caddy

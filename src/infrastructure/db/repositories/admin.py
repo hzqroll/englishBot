@@ -65,9 +65,9 @@ class AdminRepository:
             rows = await session.execute(
                 select(
                     MessageDeliveryLog,
-                    Group.qq_group_id,
+                    Group.chat_id,
                     Group.name,
-                    User.qq_user_id,
+                    User.open_id,
                     User.nickname,
                     DailyCardSnapshot.card_type,
                     DailyCardSnapshot.image_paths_json,
@@ -79,7 +79,7 @@ class AdminRepository:
                 .limit(limit)
             )
             result = []
-            for log, qq_group_id, group_name, qq_user_id, nickname, card_type, image_paths in rows.all():
+            for log, chat_id, group_name, open_id, nickname, card_type, image_paths in rows.all():
                 result.append(
                     {
                         "id": log.id,
@@ -88,9 +88,9 @@ class AdminRepository:
                         "success": log.success,
                         "provider_response": log.provider_response,
                         "created_at": log.created_at,
-                        "group_id": qq_group_id,
+                        "group_id": chat_id,
                         "group_name": group_name or "",
-                        "user_id": qq_user_id or "",
+                        "user_id": open_id or "",
                         "nickname": nickname or "",
                         "card_type": card_type or "",
                         "image_count": len(image_paths or []),
@@ -99,11 +99,11 @@ class AdminRepository:
                 )
             return result
 
-    async def ensure_group(self, *, qq_group_id: str, name: str = "", enabled: bool = True) -> Group:
+    async def ensure_group(self, *, chat_id: str, name: str = "", enabled: bool = True) -> Group:
         async with self._session_factory() as session:
-            group = await session.scalar(select(Group).where(Group.qq_group_id == qq_group_id))
+            group = await session.scalar(select(Group).where(Group.chat_id == chat_id))
             if group is None:
-                group = Group(qq_group_id=qq_group_id, name=name, enabled=enabled)
+                group = Group(chat_id=chat_id, name=name, enabled=enabled)
                 session.add(group)
                 await session.commit()
                 await session.refresh(group)
@@ -118,7 +118,7 @@ class AdminRepository:
     async def list_groups(self) -> list[Group]:
         async with self._session_factory() as session:
             rows = await session.scalars(
-                select(Group).order_by(Group.enabled.desc(), Group.updated_at.desc(), Group.qq_group_id.asc())
+                select(Group).order_by(Group.enabled.desc(), Group.updated_at.desc(), Group.chat_id.asc())
             )
             return list(rows)
 
@@ -126,29 +126,29 @@ class AdminRepository:
         self,
         *,
         group_id: int | None,
-        qq_group_id: str,
+        chat_id: str,
         name: str,
         enabled: bool,
     ) -> Group:
         async with self._session_factory() as session:
-            existing_by_qq = await session.scalar(select(Group).where(Group.qq_group_id == qq_group_id))
+            existing_by_chat_id = await session.scalar(select(Group).where(Group.chat_id == chat_id))
             if group_id is None:
-                if existing_by_qq is not None:
-                    group = existing_by_qq
+                if existing_by_chat_id is not None:
+                    group = existing_by_chat_id
                 else:
-                    group = Group(qq_group_id=qq_group_id, name=name, enabled=enabled)
+                    group = Group(chat_id=chat_id, name=name, enabled=enabled)
                     session.add(group)
             else:
                 group = await session.get(Group, group_id)
                 if group is None:
                     raise ValueError("目标群不存在。")
-                if existing_by_qq is not None and existing_by_qq.id != group_id:
+                if existing_by_chat_id is not None and existing_by_chat_id.id != group_id:
                     raise ValueError("该群号已经存在。")
-                group.qq_group_id = qq_group_id
+                group.chat_id = chat_id
                 group.name = name
                 group.enabled = enabled
 
-            if group_id is None and existing_by_qq is not None:
+            if group_id is None and existing_by_chat_id is not None:
                 group.name = name
                 group.enabled = enabled
 
@@ -161,7 +161,7 @@ class AdminRepository:
             rows = await session.scalars(select(GroupConfig))
             return list(rows)
 
-    async def upsert_group_config(self, *, group_id: int, key: str, value: str, channel: str = "onebot") -> GroupConfig:
+    async def upsert_group_config(self, *, group_id: int, key: str, value: str, channel: str = "feishu") -> GroupConfig:
         async with self._session_factory() as session:
             row = await session.scalar(
                 select(GroupConfig).where(
@@ -179,7 +179,7 @@ class AdminRepository:
             await session.refresh(row)
             return row
 
-    async def delete_group_config(self, *, group_id: int, key: str, channel: str = "onebot") -> None:
+    async def delete_group_config(self, *, group_id: int, key: str, channel: str = "feishu") -> None:
         async with self._session_factory() as session:
             row = await session.scalar(
                 select(GroupConfig).where(

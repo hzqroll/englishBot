@@ -12,19 +12,23 @@ class IdentityRepository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
-    async def get_group_by_qq_group_id(self, qq_group_id: str) -> Group | None:
+    async def get_group_by_chat_id(self, chat_id: str) -> Group | None:
         async with self._session_factory() as session:
-            return await session.scalar(select(Group).where(Group.qq_group_id == qq_group_id))
+            return await session.scalar(select(Group).where(Group.chat_id == chat_id))
 
-    async def get_user_by_qq_user_id(self, qq_user_id: str) -> User | None:
+    async def get_user_by_open_id(self, open_id: str) -> User | None:
         async with self._session_factory() as session:
-            return await session.scalar(select(User).where(User.qq_user_id == qq_user_id))
+            return await session.scalar(select(User).where(User.open_id == open_id))
 
-    async def ensure_group(self, qq_group_id: str, name: str = "") -> Group:
+    async def get_user_by_id(self, user_id: int) -> User | None:
         async with self._session_factory() as session:
-            group = await session.scalar(select(Group).where(Group.qq_group_id == qq_group_id))
+            return await session.get(User, user_id)
+
+    async def ensure_group(self, chat_id: str, name: str = "") -> Group:
+        async with self._session_factory() as session:
+            group = await session.scalar(select(Group).where(Group.chat_id == chat_id))
             if group is None:
-                group = Group(qq_group_id=qq_group_id, name=name)
+                group = Group(chat_id=chat_id, name=name)
                 session.add(group)
                 await session.commit()
                 await session.refresh(group)
@@ -33,13 +37,13 @@ class IdentityRepository:
                 await session.commit()
             return group
 
-    async def ensure_user(self, qq_user_id: str, nickname: str = "") -> User:
+    async def ensure_user(self, open_id: str, nickname: str = "") -> User:
         async with self._session_factory() as session:
-            user = await session.scalar(select(User).where(User.qq_user_id == qq_user_id))
+            user = await session.scalar(select(User).where(User.open_id == open_id))
             now = datetime.now(UTC)
             if user is None:
                 user = User(
-                    qq_user_id=qq_user_id,
+                    open_id=open_id,
                     nickname=nickname,
                     joined_at=now,
                     last_active_at=now,

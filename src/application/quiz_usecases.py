@@ -28,15 +28,15 @@ class QuizUseCase:
     async def start_weekly_quiz(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         target_date: date | None = None,
     ) -> str:
         return (
             await self.start_weekly_quiz_envelope(
-                qq_group_id=qq_group_id,
-                qq_user_id=qq_user_id,
+                chat_id=chat_id,
+                open_id=open_id,
                 nickname=nickname,
                 target_date=target_date,
             )
@@ -45,15 +45,13 @@ class QuizUseCase:
     async def start_weekly_quiz_envelope(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         target_date: date | None = None,
     ) -> MessageEnvelope:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
-        if not await self._identity_repo.is_enrolled(user.id, group.id):
-            return MessageEnvelope(plain_text="请先发送“报名学习”后再开始周测。")
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
 
         target_date = target_date or datetime.now().astimezone().date()
         biz_week = target_date.strftime("%G-W%V")
@@ -132,16 +130,14 @@ class QuizUseCase:
     async def submit_weekly_quiz(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         session_id: int,
         answers: dict[int, str],
     ) -> str:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
-        if not await self._identity_repo.is_enrolled(user.id, group.id):
-            return "你还没有报名学习。"
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
 
         session = await self._learning_repo.get_quiz_session(session_id=session_id)
         if session is None:

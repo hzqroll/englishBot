@@ -165,26 +165,15 @@ class OpenAICompatibleProvider:
                 error_points=[],
             )
 
-        system_prompt = dedent(
-            """
-            你是英语学习助教。请严格返回 JSON，结构如下：
-            {
-              "corrected_text": "...",
-              "zh_translation": "...",
-              "natural_expression": "...",
-              "explanation": "...",
-              "error_points": [
-                {
-                  "error_type": "tense|article|preposition|word_choice|spelling|expression|grammar|agreement|natural_expression",
-                  "source_fragment": "...",
-                  "correct_fragment": "...",
-                  "explanation": "..."
-                }
-              ]
-            }
-            """
-        ).strip()
-        user_prompt = f"上下文：{context or '无'}\n待纠错英文：{text}"
+        system_prompt = (
+            "你是英语纠错助教，严格返回JSON：\n"
+            '{"corrected_text":"...","zh_translation":"...","natural_expression":"...",'
+            '"explanation":"一句话总结","error_points":['
+            '{"error_type":"tense|article|preposition|word_choice|spelling|expression|grammar|agreement",'
+            '"source_fragment":"...","correct_fragment":"...","explanation":"简短说明"}]}\n'
+            "要求：explanation和error_points[].explanation各限20字内。"
+        )
+        user_prompt = f"纠错：{text}"
 
         data = await self._chat_json_stream(
             messages=[
@@ -192,7 +181,7 @@ class OpenAICompatibleProvider:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.2,
-            max_tokens=500,
+            max_tokens=400,
             on_chunk=on_chunk,
         )
         return CorrectionResult(
@@ -335,7 +324,7 @@ class OpenAICompatibleProvider:
         on_chunk: Callable[[str], None] | None = None,
         timeout: float | None = None,
     ) -> str:
-        """Stream LLM response via SSE. Throttles on_chunk to ~5 calls/sec."""
+        """Stream LLM response via SSE. Passes every chunk to on_chunk for minimal latency."""
         payload = {
             "model": self._model,
             "messages": messages,
@@ -348,7 +337,6 @@ class OpenAICompatibleProvider:
             "Content-Type": "application/json",
         }
         accumulated = ""
-        last_callback_time = 0.0
 
         client: httpx.AsyncClient
         if timeout is not None and timeout != self._timeout:
@@ -380,10 +368,8 @@ class OpenAICompatibleProvider:
                     continue
                 if content:
                     accumulated += content
-                    now = time.monotonic()
-                    if on_chunk and now - last_callback_time >= 0.2:
+                    if on_chunk:
                         on_chunk(accumulated)
-                        last_callback_time = now
 
         # Final callback with complete text
         if on_chunk:

@@ -16,6 +16,7 @@ class CardDocument:
     sections: list[CardSection] = field(default_factory=list)
     footer_lines: list[str] = field(default_factory=list)
     theme: str = "blue"
+    metadata: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

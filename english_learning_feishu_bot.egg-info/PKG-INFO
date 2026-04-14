@@ -1,7 +1,7 @@
 Metadata-Version: 2.4
-Name: english-learning-qq-bot
+Name: english-learning-feishu-bot
 Version: 0.1.0
-Summary: QQ English learning bot powered by NoneBot2, NapCat, SQLite and FastAPI
+Summary: Feishu English learning bot powered by NoneBot2, SQLite and FastAPI
 Requires-Python: <3.13,>=3.12
 Description-Content-Type: text/markdown
 Requires-Dist: aiosqlite>=0.20.0
@@ -13,18 +13,16 @@ Requires-Dist: httpx>=0.28.0
 Requires-Dist: itsdangerous>=2.2.0
 Requires-Dist: lark-oapi>=1.4.0
 Requires-Dist: jinja2>=3.1.4
+Requires-Dist: language_tool_python>=2.8.5
 Requires-Dist: nonebot2[fastapi]>=2.4.1
-Requires-Dist: nonebot-adapter-onebot>=2.4.6
 Requires-Dist: nonebot-plugin-apscheduler>=0.5.0
 Requires-Dist: passlib[bcrypt]>=1.7.4
-Requires-Dist: pillow>=11.1.0
 Requires-Dist: pydantic>=2.10.0
 Requires-Dist: pydantic-settings>=2.7.0
 Requires-Dist: python-multipart>=0.0.20
 Requires-Dist: pyyaml>=6.0.2
 Requires-Dist: sqlalchemy[asyncio]>=2.0.36
 Requires-Dist: tenacity>=9.0.0
-Requires-Dist: tencentcloud-sdk-python>=3.0.1399
 Requires-Dist: uvicorn>=0.34.0
 Provides-Extra: dev
 Requires-Dist: pytest>=8.3.4; extra == "dev"
@@ -32,10 +30,12 @@ Requires-Dist: pytest-asyncio>=0.24.0; extra == "dev"
 
 # English Learning QQ Bot
 
-一个基于 `NoneBot2 + NapCat + SQLite + FastAPI` 的英语学习 QQ 机器人。
+一个基于 `NoneBot2 + NapCat + SQLite + FastAPI` 的英语学习群机器人，当前支持 QQ 和飞书双渠道。
 
 ## 方案文档
 
+- 当前功能说明书：[docs/EnglishBotProductOverview.md](docs/EnglishBotProductOverview.md)
+- 产品评估与优化建议：[docs/EnglishBotProductEvaluation.md](docs/EnglishBotProductEvaluation.md)
 - 产品设计：[docs/product-design.md](docs/product-design.md)
 - 第一版技术方案：[docs/technical-solution-v1.md](docs/technical-solution-v1.md)
 - 第一版开发计划与 Todo：[docs/development-plan-v1.md](docs/development-plan-v1.md)
@@ -46,6 +46,7 @@ Requires-Dist: pytest-asyncio>=0.24.0; extra == "dev"
 - 把纠错结果沉淀为 `error_points` 和 `review_items`
 - 支持固定命令：`报名学习`、`今日任务`、`提交任务`、`复习一下`、`我的等级`、`开始周测`、`答题`、`本周总结`、`帮助`
 - 支持任务类消息卡片：`今日任务`、`周测`、`周报` 直接在群消息里展示完整内容
+- 飞书侧支持每日 `Friends` 对话学习推送，并可按集归档到飞书文档
 - 提供 `FastAPI + Jinja2` 管理后台
 - 支持定时推送、周报、周测、SQLite 备份和动态配置覆盖
 

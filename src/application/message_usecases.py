@@ -45,6 +45,7 @@ class MessageUseCase:
         group_dialogue_store: GroupDialogueStore,
         error_aggregator: ErrorAggregator,
         review_scheduler: ReviewScheduler,
+        daily_session_usecase=None,
         recent_chat_min_sentences: int = 10,
     ) -> None:
         self._identity_repo = identity_repo
@@ -55,6 +56,7 @@ class MessageUseCase:
         self._group_dialogue_store = group_dialogue_store
         self._error_aggregator = error_aggregator
         self._review_scheduler = review_scheduler
+        self._daily_session_usecase = daily_session_usecase
         self._recent_chat_min_sentences = recent_chat_min_sentences
 
     @staticmethod
@@ -84,9 +86,14 @@ class MessageUseCase:
         group = await self._identity_repo.ensure_group(ctx.group_id, ctx.group_name)
         user = await self._identity_repo.ensure_user(ctx.user_id, ctx.nickname)
         detected = self._detect_language(language_sample)
+        active_session = await self._learning_repo.get_active_daily_session(
+            group_id=group.id,
+            biz_date=date.today(),
+        )
         event = await self._learning_repo.create_message_event(
             raw_event_id=ctx.raw_event_id,
             group_id=group.id,
+            session_id=active_session.id if active_session is not None else None,
             user_id=user.id,
             message_text=cleaned,
             event_type="at_message",
@@ -165,6 +172,16 @@ class MessageUseCase:
             reply_text=reply,
             success=success,
         )
+        if self._daily_session_usecase is not None and action_type in {"english_correction", "dialogue_analysis_explicit"}:
+            await self._daily_session_usecase.record_message_event(
+                group_id=group.id,
+                user_id=user.id,
+                message_event_id=event.id,
+                message_text=cleaned,
+                message_type="text",
+                evidence_types={"english_attempt", "at_message"},
+                biz_date=date.today(),
+            )
         self._context_store.put(
             ctx.group_id,
             ctx.user_id,

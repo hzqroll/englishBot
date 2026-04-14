@@ -57,9 +57,9 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
     nickname = "Rainbow"
     await learning_usecase.enroll(
         EnrollmentContext(
-            qq_group_id=group_id,
+            chat_id=group_id,
             group_name="英语学习群",
-            qq_user_id=user_id,
+            open_id=user_id,
             nickname=nickname,
         )
     )
@@ -69,10 +69,11 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
     today = datetime.now().astimezone().date()
     yesterday = today.fromordinal(today.toordinal() - 1)
 
-    await learning_usecase.build_today_lesson(qq_group_id=group_id, biz_date=yesterday)
+    await learning_usecase.build_today_lesson(chat_id=group_id, biz_date=yesterday)
     yesterday_event = await learning_repo.create_message_event(
         raw_event_id="yesterday-correction",
         group_id=group.id,
+        session_id=None,
         user_id=user.id,
         message_text="I very like speak English.",
         event_type="at_message",
@@ -111,7 +112,7 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
         created_at=datetime.combine(yesterday, datetime.min.time(), tzinfo=UTC),
     )
 
-    await learning_usecase.build_today_lesson(qq_group_id=group_id, biz_date=today)
+    await learning_usecase.build_today_lesson(chat_id=group_id, biz_date=today)
     today_lesson = await learning_repo.get_today_lesson_detail(group_id=group.id, biz_date=today)
     assert today_lesson is not None
     lesson, _ = today_lesson
@@ -140,6 +141,7 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
     passive_event = await learning_repo.create_message_event(
         raw_event_id="today-passive-1",
         group_id=group.id,
+        session_id=None,
         user_id=user.id,
         message_text="Could we reschedule the meeting? This time works better for me.",
         event_type="group_message",
@@ -175,16 +177,16 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
     )
 
     envelope = await report_usecase.build_daily_progress_envelope(
-        qq_group_id=group_id,
-        qq_user_id=user_id,
+        chat_id=group_id,
+        open_id=user_id,
         nickname=nickname,
         target_date=today,
     )
     assert envelope is not None
-    assert "昨日回捞" in envelope.plain_text
+    assert "今晚进展" in envelope.plain_text
     assert envelope.card_document is not None
-    assert any(section.title == "昨日回捞表现" for section in envelope.card_document.sections)
-    assert any(section.title == "掌握判断" for section in envelope.card_document.sections)
+    assert any(section.title == "学习证据" for section in envelope.card_document.sections)
+    assert any(section.title == "下一步" for section in envelope.card_document.sections)
     assert envelope.card_snapshot_id is not None
 
     evaluated = await learning_repo.list_review_candidates(
@@ -211,7 +213,7 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
         card_type="progress",
     )
     assert card_snapshot is not None
-    assert card_snapshot.card_document_json["title"] == "今日学习进度"
+    assert card_snapshot.card_document_json["title"] == "今晚进展"
 
     await engine.dispose()
 
@@ -241,6 +243,7 @@ async def test_daily_progress_uses_passive_conversation_activity(tmp_path):
     passive_event = await learning_repo.create_message_event(
         raw_event_id="passive-progress-1",
         group_id=group.id,
+        session_id=None,
         user_id=user.id,
         message_text="Could we move the meeting to Friday morning?",
         event_type="group_message",
@@ -271,15 +274,15 @@ async def test_daily_progress_uses_passive_conversation_activity(tmp_path):
     )
 
     envelope = await report_usecase.build_daily_progress_envelope(
-        qq_group_id="204257012",
-        qq_user_id="472583006",
+        chat_id="204257012",
+        open_id="472583006",
         nickname="Rainbow",
         target_date=today,
     )
 
     assert envelope is not None
-    assert "今日发言" in envelope.plain_text
+    assert "今晚进展" in envelope.plain_text
     assert envelope.card_document is not None
-    assert any(section.title == "今日参与概览" for section in envelope.card_document.sections)
+    assert any(section.title == "今天到了哪" for section in envelope.card_document.sections)
 
     await engine.dispose()

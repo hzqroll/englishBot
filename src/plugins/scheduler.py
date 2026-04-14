@@ -18,12 +18,28 @@ def register_jobs() -> None:
     container = get_container()
     runtime_config = container.runtime_config
 
+    logger.info("register_jobs: registering scheduled jobs...")
+
     scheduler.add_job(
         daily_push_job,
         "cron",
         id="daily_push",
         replace_existing=True,
         **_cron_kwargs(runtime_config.cron("scheduler.daily_push_cron")),
+    )
+    scheduler.add_job(
+        midday_baton_job,
+        "cron",
+        id="midday_baton",
+        replace_existing=True,
+        **_cron_kwargs(runtime_config.cron("scheduler.midday_baton_cron")),
+    )
+    scheduler.add_job(
+        evening_baton_job,
+        "cron",
+        id="evening_baton",
+        replace_existing=True,
+        **_cron_kwargs(runtime_config.cron("scheduler.evening_baton_cron")),
     )
     scheduler.add_job(
         daily_error_digest_job,
@@ -39,13 +55,8 @@ def register_jobs() -> None:
         replace_existing=True,
         **_cron_kwargs(runtime_config.cron("scheduler.daily_progress_cron")),
     )
-    scheduler.add_job(
-        weekly_report_job,
-        "cron",
-        id="weekly_report",
-        replace_existing=True,
-        **_cron_kwargs(runtime_config.cron("scheduler.weekly_report_cron")),
-    )
+    # Weekly report is kept as a manual action ("本周总结"/admin trigger) to avoid
+    # interrupting daily execution with scheduled weekly cards.
     scheduler.add_job(
         weekly_quiz_job,
         "cron",
@@ -75,6 +86,11 @@ def register_jobs() -> None:
         **_cron_kwargs(runtime_config.cron("scheduler.sync_feishu_messages_cron")),
     )
 
+    jobs = scheduler.get_jobs()
+    logger.info("register_jobs: {} jobs registered", len(jobs))
+    for j in jobs:
+        logger.info("  job: {}", j.id)
+
 
 async def daily_push_job(force_run: bool = False) -> None:
     container = await get_or_init_container()
@@ -83,34 +99,12 @@ async def daily_push_job(force_run: bool = False) -> None:
     if not await container.learning_repo.acquire_job_lock(job_name="daily_push", biz_key=biz_key, force=force_run):
         return
     try:
-        bots = list(get_bots().values())
-        # QQ 群
-        if container.runtime_config.is_qq_enabled():
-            for group_id in container.runtime_config.enabled_group_ids():
-                await container.learning_usecase.build_today_lesson(qq_group_id=group_id)
-                message = await container.learning_usecase.get_today_task_broadcast_envelope(qq_group_id=group_id)
-                sent = await _send_group_envelope(
-                    container=container,
-                    bots=bots,
-                    group_id=group_id,
-                    envelope=message,
-                    job_name="daily_push",
-                )
-                group = await container.identity_repo.ensure_group(group_id)
-                await container.learning_repo.update_lesson_push_status(
-                    group_id=group.id,
-                    biz_date=date.today(),
-                    channel="onebot",
-                    push_status="sent" if sent else "failed",
-                )
-        # 飞书群
         if container.runtime_config.is_feishu_enabled():
             for chat_id in container.runtime_config.feishu_enabled_group_ids():
-                await container.learning_usecase.build_today_lesson(qq_group_id=chat_id)
-                envelope = await container.learning_usecase.get_today_task_broadcast_envelope(qq_group_id=chat_id)
+                await container.learning_usecase.build_today_lesson(chat_id=chat_id)
+                envelope = await container.daily_session_usecase.build_execution_envelope(chat_id=chat_id)
                 sent = await _send_group_envelope(
                     container=container,
-                    bots=bots,
                     group_id=chat_id,
                     envelope=envelope,
                     job_name="daily_push",
@@ -128,6 +122,14 @@ async def daily_push_job(force_run: bool = False) -> None:
         await container.learning_repo.finish_job_lock(job_name="daily_push", biz_key=biz_key, status="failed")
 
 
+async def midday_baton_job(target_date: date | None = None, force_run: bool = False) -> None:
+    await _run_baton_job(job_name="midday_baton", phase="midday", target_date=target_date, force_run=force_run)
+
+
+async def evening_baton_job(target_date: date | None = None, force_run: bool = False) -> None:
+    await _run_baton_job(job_name="evening_baton", phase="evening", target_date=target_date, force_run=force_run)
+
+
 async def daily_error_digest_job(target_date: date | None = None, force_run: bool = False) -> None:
     container = await get_or_init_container()
     await container.runtime_config.refresh()
@@ -140,37 +142,14 @@ async def daily_error_digest_job(target_date: date | None = None, force_run: boo
     ):
         return
     try:
-        bots = list(get_bots().values())
-        if container.runtime_config.is_qq_enabled():
-            for group_id in container.runtime_config.enabled_group_ids():
-                group = await container.identity_repo.ensure_group(group_id)
-                users = await container.identity_repo.list_group_active_users(group.id)
-                for user in users:
-                    digest = await container.report_usecase.build_daily_error_digest_envelope(
-                        qq_group_id=group_id,
-                        qq_user_id=user.qq_user_id,
-                        nickname=user.nickname,
-                        target_date=target_date,
-                    )
-                    if digest is None:
-                        continue
-                    await _send_group_envelope(
-                        container=container,
-                        bots=bots,
-                        group_id=group_id,
-                        envelope=digest,
-                        mention_qq=user.qq_user_id,
-                        job_name="daily_error_digest",
-                        user_id=user.id,
-                    )
         if container.runtime_config.is_feishu_enabled():
             for chat_id in container.runtime_config.feishu_enabled_group_ids():
                 group = await container.identity_repo.ensure_group(chat_id)
                 users = await container.identity_repo.list_group_active_users(group.id)
                 for user in users:
                     digest = await container.report_usecase.build_daily_error_digest_envelope(
-                        qq_group_id=chat_id,
-                        qq_user_id=user.qq_user_id,
+                        chat_id=chat_id,
+                        open_id=user.open_id,
                         nickname=user.nickname,
                         target_date=target_date,
                     )
@@ -178,10 +157,9 @@ async def daily_error_digest_job(target_date: date | None = None, force_run: boo
                         continue
                     await _send_group_envelope(
                         container=container,
-                        bots=bots,
                         group_id=chat_id,
                         envelope=digest,
-                        mention_qq=user.qq_user_id,
+                        mention_user_id=user.open_id,
                         job_name="daily_error_digest",
                         user_id=user.id,
                     )
@@ -203,37 +181,14 @@ async def daily_progress_job(target_date: date | None = None, force_run: bool = 
     ):
         return
     try:
-        bots = list(get_bots().values())
-        if container.runtime_config.is_qq_enabled():
-            for group_id in container.runtime_config.enabled_group_ids():
-                group = await container.identity_repo.ensure_group(group_id)
-                users = await container.identity_repo.list_group_active_users(group.id)
-                for user in users:
-                    progress = await container.report_usecase.build_daily_progress_envelope(
-                        qq_group_id=group_id,
-                        qq_user_id=user.qq_user_id,
-                        nickname=user.nickname,
-                        target_date=target_date,
-                    )
-                    if progress is None:
-                        continue
-                    await _send_group_envelope(
-                        container=container,
-                        bots=bots,
-                        group_id=group_id,
-                        envelope=progress,
-                        mention_qq=user.qq_user_id,
-                        job_name="daily_progress",
-                        user_id=user.id,
-                    )
         if container.runtime_config.is_feishu_enabled():
             for chat_id in container.runtime_config.feishu_enabled_group_ids():
                 group = await container.identity_repo.ensure_group(chat_id)
                 users = await container.identity_repo.list_group_active_users(group.id)
                 for user in users:
                     progress = await container.report_usecase.build_daily_progress_envelope(
-                        qq_group_id=chat_id,
-                        qq_user_id=user.qq_user_id,
+                        chat_id=chat_id,
+                        open_id=user.open_id,
                         nickname=user.nickname,
                         target_date=target_date,
                     )
@@ -241,10 +196,9 @@ async def daily_progress_job(target_date: date | None = None, force_run: bool = 
                         continue
                     await _send_group_envelope(
                         container=container,
-                        bots=bots,
                         group_id=chat_id,
                         envelope=progress,
-                        mention_qq=user.qq_user_id,
+                        mention_user_id=user.open_id,
                         job_name="daily_progress",
                         user_id=user.id,
                     )
@@ -266,44 +220,22 @@ async def weekly_report_job(target_date: date | None = None, force_run: bool = F
     ):
         return
     try:
-        bots = list(get_bots().values())
-        if container.runtime_config.is_qq_enabled():
-            for group_id in container.runtime_config.enabled_group_ids():
-                group = await container.identity_repo.ensure_group(group_id)
-                users = await container.identity_repo.list_group_active_users(group.id)
-                for user in users:
-                    report = await container.report_usecase.build_weekly_report_envelope(
-                        qq_group_id=group_id,
-                        qq_user_id=user.qq_user_id,
-                        nickname=user.nickname,
-                        target_date=target_date,
-                    )
-                    await _send_group_envelope(
-                        container=container,
-                        bots=bots,
-                        group_id=group_id,
-                        envelope=report,
-                        mention_qq=user.qq_user_id,
-                        job_name="weekly_report",
-                        user_id=user.id,
-                    )
         if container.runtime_config.is_feishu_enabled():
             for chat_id in container.runtime_config.feishu_enabled_group_ids():
                 group = await container.identity_repo.ensure_group(chat_id)
                 users = await container.identity_repo.list_group_active_users(group.id)
                 for user in users:
                     report = await container.report_usecase.build_weekly_report_envelope(
-                        qq_group_id=chat_id,
-                        qq_user_id=user.qq_user_id,
+                        chat_id=chat_id,
+                        open_id=user.open_id,
                         nickname=user.nickname,
                         target_date=target_date,
                     )
                     await _send_group_envelope(
                         container=container,
-                        bots=bots,
                         group_id=chat_id,
                         envelope=report,
-                        mention_qq=user.qq_user_id,
+                        mention_user_id=user.open_id,
                         job_name="weekly_report",
                         user_id=user.id,
                     )
@@ -325,44 +257,22 @@ async def weekly_quiz_job(target_date: date | None = None, force_run: bool = Fal
     ):
         return
     try:
-        bots = list(get_bots().values())
-        if container.runtime_config.is_qq_enabled():
-            for group_id in container.runtime_config.enabled_group_ids():
-                group = await container.identity_repo.ensure_group(group_id)
-                users = await container.identity_repo.list_group_active_users(group.id)
-                for user in users:
-                    quiz = await container.quiz_usecase.start_weekly_quiz_envelope(
-                        qq_group_id=group_id,
-                        qq_user_id=user.qq_user_id,
-                        nickname=user.nickname,
-                        target_date=target_date,
-                    )
-                    await _send_group_envelope(
-                        container=container,
-                        bots=bots,
-                        group_id=group_id,
-                        envelope=quiz,
-                        mention_qq=user.qq_user_id,
-                        job_name="weekly_quiz",
-                        user_id=user.id,
-                    )
         if container.runtime_config.is_feishu_enabled():
             for chat_id in container.runtime_config.feishu_enabled_group_ids():
                 group = await container.identity_repo.ensure_group(chat_id)
                 users = await container.identity_repo.list_group_active_users(group.id)
                 for user in users:
                     quiz = await container.quiz_usecase.start_weekly_quiz_envelope(
-                        qq_group_id=chat_id,
-                        qq_user_id=user.qq_user_id,
+                        chat_id=chat_id,
+                        open_id=user.open_id,
                         nickname=user.nickname,
                         target_date=target_date,
                     )
                     await _send_group_envelope(
                         container=container,
-                        bots=bots,
                         group_id=chat_id,
                         envelope=quiz,
-                        mention_qq=user.qq_user_id,
+                        mention_user_id=user.open_id,
                         job_name="weekly_quiz",
                         user_id=user.id,
                     )
@@ -408,30 +318,19 @@ def _cron_kwargs(expression: str) -> dict[str, str]:
 async def _send_group_envelope(
     *,
     container,
-    bots: list,
     group_id: str,
     envelope: MessageEnvelope,
-    mention_qq: str | None = None,
+    mention_user_id: str | None = None,
     job_name: str,
     user_id: int | None = None,
 ) -> bool:
-    # 根据群 ID 格式判断平台
-    is_feishu = group_id.startswith("oc_")
     group = await container.identity_repo.ensure_group(group_id)
     try:
-        if is_feishu:
-            channel = container.channels.get("feishu")
-            if channel is None:
-                logger.warning("feishu channel not registered, skip group %s", group_id)
-                return False
-            result = await channel.send_envelope(chat_id=group_id, envelope=envelope, mention_user=mention_qq)
-        else:
-            result = await container.message_delivery_service.send_group_envelope(
-                bots=bots,
-                group_id=group_id,
-                envelope=envelope,
-                mention_qq=mention_qq,
-            )
+        channel = container.channels.get("feishu")
+        if channel is None:
+            logger.warning("feishu channel not registered, skip group %s", group_id)
+            return False
+        result = await channel.send_envelope(chat_id=group_id, envelope=envelope, mention_user=mention_user_id)
         if envelope.card_snapshot_id is not None and result.image_paths:
             await container.learning_repo.update_daily_card_snapshot_images(
                 snapshot_id=envelope.card_snapshot_id,
@@ -446,6 +345,15 @@ async def _send_group_envelope(
             success=True,
             provider_response="sent",
         )
+        # 发送后归档到飞书文档（非阻塞）— 跳过 Friends 内容（使用独立文档）
+        if container.feishu_docs_service is not None and job_name != "friends_dialogue":
+            await _save_to_feishu_docs(
+                container=container,
+                envelope=envelope,
+                card_type=job_name,
+                target_date=date.today(),
+            )
+        return True
     except Exception:
         logger.exception("failed to send message to group %s", group_id)
         await container.learning_repo.create_message_delivery_log(
@@ -459,15 +367,42 @@ async def _send_group_envelope(
         )
         return False
 
-    # 飞书群消息发送后，归档到飞书文档（非阻塞）— 跳过 Friends 内容（使用独立文档）
-    if is_feishu and container.feishu_docs_service is not None and job_name != "friends_dialogue":
-        await _save_to_feishu_docs(
-            container=container,
-            envelope=envelope,
-            card_type=job_name,
-            target_date=date.today(),
-        )
-    return True
+
+async def _run_baton_job(
+    *,
+    job_name: str,
+    phase: str,
+    target_date: date | None = None,
+    force_run: bool = False,
+) -> None:
+    container = await get_or_init_container()
+    await container.runtime_config.refresh()
+    target_date = target_date or datetime.now().astimezone().date()
+    biz_key = target_date.isoformat()
+    if not await container.learning_repo.acquire_job_lock(job_name=job_name, biz_key=biz_key, force=force_run):
+        return
+    try:
+        if container.runtime_config.is_feishu_enabled():
+            for chat_id in container.runtime_config.feishu_enabled_group_ids():
+                reminder = await container.daily_session_usecase.build_baton_reminder(
+                    chat_id=chat_id,
+                    biz_date=target_date,
+                    phase=phase,
+                )
+                if reminder is None:
+                    continue
+                await _send_group_envelope(
+                    container=container,
+                    group_id=chat_id,
+                    envelope=reminder.envelope,
+                    mention_user_id=reminder.mention_open_id,
+                    user_id=reminder.mention_user_id,
+                    job_name=job_name,
+                )
+        await container.learning_repo.finish_job_lock(job_name=job_name, biz_key=biz_key, status="success")
+    except Exception:
+        logger.exception("%s job failed", job_name)
+        await container.learning_repo.finish_job_lock(job_name=job_name, biz_key=biz_key, status="failed")
 
 
 async def _save_to_feishu_docs(
@@ -517,8 +452,7 @@ async def daily_friends_job(force_run: bool = False) -> None:
         )
         segment = container.friends_usecase.provider.get_segment(target_date, start_date)
 
-        bots = list(get_bots().values())
-        if container.runtime_config.is_feishu_enabled():
+        if container.channels.get("feishu") is not None:
             doc_url: str | None = None
             if container.feishu_docs_service is not None:
                 doc_url = await _save_friends_to_docs(
@@ -541,7 +475,6 @@ async def daily_friends_job(force_run: bool = False) -> None:
             for chat_id in container.runtime_config.feishu_enabled_group_ids():
                 await _send_group_envelope(
                     container=container,
-                    bots=bots,
                     group_id=chat_id,
                     envelope=delivery_envelope,
                     job_name="friends_dialogue",

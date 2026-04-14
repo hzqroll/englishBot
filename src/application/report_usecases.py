@@ -31,15 +31,15 @@ class ReportUseCase:
     async def build_weekly_report(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         target_date: date | None = None,
     ) -> str:
         return (
             await self.build_weekly_report_envelope(
-                qq_group_id=qq_group_id,
-                qq_user_id=qq_user_id,
+                chat_id=chat_id,
+                open_id=open_id,
                 nickname=nickname,
                 target_date=target_date,
             )
@@ -48,13 +48,13 @@ class ReportUseCase:
     async def build_weekly_report_envelope(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         target_date: date | None = None,
     ) -> MessageEnvelope:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
 
         target_date = target_date or datetime.now().astimezone().date()
         week_key = target_date.strftime("%G-W%V")
@@ -118,50 +118,53 @@ class ReportUseCase:
         weak_points = "、".join(label_error_type(item) for item in stats["weak_points"]) or "暂无明显高频薄弱项"
         weak_examples = "；".join(weak_details) or "本周没有沉淀新的典型错误片段。"
         level_label = "初级" if level == "beginner" else "中级"
+        growth_lines = self._build_weekly_growth_lines(stats=stats, level_label=level_label)
+        focus_lines = self._build_weekly_focus_lines(stats=stats)
         plain_text = (
-            f"周报 {week_key}\n"
-            f"- 学习天数：{stats['learning_days']} 天\n"
-            f"- 本周完成率：{stats['task_completion_rate']:.0%}\n"
-            f"- 翻译/纠错次数：{stats['translation_count']}/{stats['correction_count']}\n"
-            f"- 周测平均分：{stats['quiz_average_score']:.1f}，最近一次：{stats['latest_quiz_score']}\n"
-            f"- 当前等级：{level_label}（{level}）\n"
-            f"- 连续学习：{stats['current_streak']} 天，累计积分：{stats['points_earned']}\n"
-            f"- 薄弱点：{weak_points}\n"
+            f"本周复盘 {week_key}\n"
+            f"- 本周推进：学习 {stats['learning_days']} 天，完成率 {stats['task_completion_rate']:.0%}\n"
+            f"- 这周暴露出来的边界：{weak_points}\n"
             f"- 典型错误：{weak_examples}\n"
+            f"- 这周已经长出来的能力：{'；'.join(growth_lines)}\n"
+            f"- 下周主攻：{'；'.join(focus_lines)}\n"
             f"- 总结：{summary_text}"
         )
         sections = [
             CardSection(
-                title="本周概览",
+                title="本周推进",
                 lines=[
                     f"学习天数：{stats['learning_days']} 天",
                     f"完成率：{stats['task_completion_rate']:.0%}",
-                    f"翻译/纠错次数：{stats['translation_count']}/{stats['correction_count']}",
-                    f"周测平均分：{stats['quiz_average_score']:.1f}",
-                    f"最近一次周测：{stats['latest_quiz_score']}",
-                    f"当前等级：{level_label}（{level}）",
+                    f"翻译/纠错：{stats['translation_count']}/{stats['correction_count']}",
+                    f"当前等级：{level_label}",
                     f"连续学习：{stats['current_streak']} 天",
-                    f"累计积分：{stats['points_earned']}",
                 ],
             ),
             CardSection(
-                title="薄弱点",
-                lines=[label_error_type(item) for item in stats["weak_points"]] or ["暂无明显高频薄弱项"],
+                title="这周暴露出来的边界",
+                lines=(
+                    [label_error_type(item) for item in stats["weak_points"]] + (weak_details[:1] or [])
+                )[:3]
+                or ["暂无明显高频薄弱项"],
             ),
             CardSection(
-                title="典型错误",
-                lines=weak_details or ["本周没有沉淀新的典型错误片段。"],
+                title="这周已经长出来的能力",
+                lines=growth_lines,
             ),
             CardSection(
-                title="本周总结",
-                lines=[summary_text],
+                title="下周主攻",
+                lines=focus_lines + [summary_text],
             ),
         ]
         document = CardDocument(
-            title=f"{week_key} 学习周报",
+            title="本周复盘",
             subtitle=f"学习 {stats['learning_days']} 天，完成率 {stats['task_completion_rate']:.0%}",
             sections=sections,
-            footer_lines=["继续保持，明天可以发送 今日任务 或 复习一下。"],
+            footer_lines=["下周继续沿着同一条主线推进。"],
+            metadata={
+                "chat_id": chat_id,
+                "biz_date": week_anchor.isoformat(),
+            },
         )
         card_snapshot = await self._learning_repo.upsert_daily_card_snapshot(
             biz_date=week_anchor,
@@ -181,13 +184,13 @@ class ReportUseCase:
     async def build_daily_error_digest_envelope(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         target_date: date | None = None,
     ) -> MessageEnvelope | None:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
 
         target_date = target_date or datetime.now().astimezone().date()
         digest = await self._learning_repo.get_daily_error_digest(
@@ -199,54 +202,37 @@ class ReportUseCase:
         if total <= 0:
             return None
 
+        repair_items = self._pick_repair_items(digest=digest)
+        review_lines = [item["correct_fragment"] for item in repair_items[:2] if item["correct_fragment"]] or ["把今晚修正过的表达明天再说一轮。"]
         plain_lines = [
-            f"{target_date.isoformat()} 今日纠错整理",
-            f"- 错词/表达：{digest['word_total']} 个",
-            f"- 语法问题：{digest['grammar_total']} 个",
+            f"{target_date.isoformat()} 今晚修正",
+            f"- 今天最该修的：{'; '.join(item['source_line'] for item in repair_items)}",
+            f"- 正确说法：{'; '.join(item['correct_line'] for item in repair_items)}",
+            f"- 明天回捞：{'; '.join(review_lines)}",
         ]
         sections = [
             CardSection(
-                title="今日概览",
-                lines=[
-                    f"今天共识别 {total} 个可复习错误",
-                    "建议先看错词，再看语法。",
-                ],
+                title="今天最该修的",
+                lines=[item["source_line"] for item in repair_items],
             )
         ]
-
-        if digest["word_items"]:
-            word_lines = []
-            for item in digest["word_items"]:
-                line = f"{item['source_fragment']} -> {item['correct_fragment']}"
-                if item["explanation"]:
-                    line += f"（{item['explanation']}）"
-                word_lines.append(line)
-                plain_lines.append(f"- 错词：{line}")
-            sections.append(CardSection(title="错词/表达", lines=word_lines))
-
-        if digest["grammar_items"]:
-            grammar_lines = []
-            for item in digest["grammar_items"]:
-                label = label_error_type(item["error_type"])
-                line = f"{label}：{item['source_fragment']} -> {item['correct_fragment']}"
-                if item["explanation"]:
-                    line += f"（{item['explanation']}）"
-                grammar_lines.append(line)
-                plain_lines.append(f"- 语法：{line}")
-            sections.append(CardSection(title="语法问题", lines=grammar_lines))
-
         sections.append(
             CardSection(
-                title="今晚建议",
-                lines=["发送 复习一下 开始针对今天的问题练习。"],
+                title="正确说法",
+                lines=[item["correct_line"] for item in repair_items],
             )
         )
+        sections.append(CardSection(title="明天回捞", lines=review_lines + ["今晚修完后，立刻重说或重写一轮。"]))
         document = CardDocument(
-            title="今日纠错整理",
-            subtitle=f"错词 {digest['word_total']} 个 · 语法问题 {digest['grammar_total']} 个",
+            title="今晚修正",
+            subtitle=f"先修最重要的 {len(repair_items)} 个问题",
             sections=sections,
-            footer_lines=["固定命令：复习一下"],
+            footer_lines=["今晚修正这一轮，明天继续带着它们开口。"],
             theme="amber",
+            metadata={
+                "chat_id": chat_id,
+                "biz_date": target_date.isoformat(),
+            },
         )
         snapshot = await self._learning_repo.upsert_daily_card_snapshot(
             biz_date=target_date,
@@ -266,13 +252,13 @@ class ReportUseCase:
     async def build_daily_progress_envelope(
         self,
         *,
-        qq_group_id: str,
-        qq_user_id: str,
+        chat_id: str,
+        open_id: str,
         nickname: str,
         target_date: date | None = None,
     ) -> MessageEnvelope | None:
-        group = await self._identity_repo.ensure_group(qq_group_id)
-        user = await self._identity_repo.ensure_user(qq_user_id, nickname)
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
 
         target_date = target_date or datetime.now().astimezone().date()
         stats = await self._learning_repo.get_daily_progress_stats(
@@ -285,6 +271,7 @@ class ReportUseCase:
             group_id=group.id,
             target_date=target_date,
         )
+        daily_session = await self._learning_repo.get_daily_session(group_id=group.id, biz_date=target_date)
         recall_results = await self._learning_repo.evaluate_review_candidates_for_day(
             user_id=user.id,
             group_id=group.id,
@@ -294,6 +281,10 @@ class ReportUseCase:
             not stats["has_activity"]
             and evidence_stats["total_messages"] <= 0
             and evidence_stats["evidence_score"] <= 0
+            and not (
+                daily_session is not None
+                and user.id in {daily_session.role_a_user_id, daily_session.role_b_user_id}
+            )
         ):
             return None
 
@@ -303,7 +294,6 @@ class ReportUseCase:
             if stats["today_task_total"] > 0 and stats["today_task_completed"] >= stats["today_task_total"]
             else "今日任务未完成"
         )
-        quiz_status = "已进行" if stats["quiz_activity_count"] > 0 else "未开始"
         lesson_detail = await self._learning_repo.get_today_lesson_detail(group_id=group.id, biz_date=target_date)
         lesson_id = lesson_detail[0].id if lesson_detail is not None else None
         mastery_level, mastery_reason = self._determine_mastery_level(
@@ -319,6 +309,7 @@ class ReportUseCase:
             mastery_level=mastery_level,
             mastery_reason=mastery_reason,
         )
+        duo_status, duo_next_step = self._build_duo_progress(daily_session=daily_session)
         summary_json = {
             "task_status": task_status,
             "stats": stats,
@@ -327,6 +318,8 @@ class ReportUseCase:
             "mastery_level": mastery_level,
             "mastery_reason": mastery_reason,
             "model_summary": model_summary,
+            "duo_status": duo_status,
+            "duo_next_step": duo_next_step,
         }
         snapshot = await self._learning_repo.upsert_daily_learning_snapshot(
             biz_date=target_date,
@@ -341,95 +334,63 @@ class ReportUseCase:
             evidence_score=int(evidence_stats["evidence_score"]),
         )
 
+        evidence_line = (
+            f"今天最像真实输出的一句：{'、'.join(evidence_stats['examples'][:2])}"
+            if evidence_stats["examples"]
+            else "今天主要在推进任务和修正表达。"
+        )
+        recall_line = (
+            f"昨日回捞：{recall_results[0]['content_text']}（{'已复现' if recall_results[0]['recalled_successfully'] else '仍需强化'}）"
+            if recall_results
+            else "今天没有需要特别回捞的旧内容。"
+        )
+        next_step_lines = [
+            duo_next_step,
+            "今晚只修最重要的 1-3 个问题，明天继续带着这些表达开口。",
+        ]
         plain_text = "\n".join(
             [
-                f"{target_date.isoformat()} 今日学习进度",
-                f"- 状态：{task_status}",
-                f"- 今日发言：{evidence_stats['total_messages']}",
-                f"- 英语尝试/目标词命中：{evidence_stats['english_attempt_count']}/{evidence_stats['target_hit_count']}",
-                f"- 翻译/纠错：{stats['translation_count']}/{stats['correction_count']}",
-                f"- 新增错词/语法：{stats['word_error_count']}/{stats['grammar_error_count']}",
-                f"- 今日任务：{stats['today_task_completed']}/{stats['today_task_total']}",
-                f"- 复习次数：{stats['review_session_count']}",
-                f"- 今日积分：{stats['points_earned']}",
-                f"- 连续学习：{stats['current_streak']} 天",
-                f"- 当前等级：{level_label}",
-                f"- 掌握判断：{self._mastery_label(mastery_level)}",
-                f"- 判断依据：{mastery_reason}",
-                f"- 总结：{model_summary}",
-                *(
-                    [f"- 昨日回捞：{item['content_text']}（{'已复现' if item['recalled_successfully'] else '仍需强化'}）" for item in recall_results]
-                    if recall_results
-                    else []
-                ),
+                f"{target_date.isoformat()} 今晚进展",
+                f"- 今天到了哪：{duo_status}",
+                f"- 当前任务：{task_status}",
+                f"- 学习证据：{evidence_line}",
+                f"- 回捞状态：{recall_line}",
+                f"- 下一步：{'；'.join(next_step_lines)}",
             ]
         )
 
         sections = [
             CardSection(
-                title="今日参与概览",
+                title="今天到了哪",
                 lines=[
-                    f"今日发言：{evidence_stats['total_messages']}",
-                    f"英语尝试：{evidence_stats['english_attempt_count']}",
-                    f"目标词命中：{evidence_stats['target_hit_count']}",
-                    f"学习提问：{evidence_stats['question_asked_count']}",
-                ],
-            ),
-            CardSection(
-                title="今日数据",
-                lines=[
-                    f"翻译次数：{stats['translation_count']}",
-                    f"纠错次数：{stats['correction_count']}",
-                    f"新增错词：{stats['word_error_count']}",
-                    f"新增语法错误：{stats['grammar_error_count']}",
-                ],
-            ),
-            CardSection(
-                title="任务进度",
-                lines=[
-                    f"今日任务：{stats['today_task_completed']}/{stats['today_task_total']}",
-                    f"复习次数：{stats['review_session_count']}",
-                    f"周测状态：{quiz_status}",
+                    duo_status,
+                    f"当前任务：{task_status}",
+                    duo_next_step,
                 ],
             ),
             CardSection(
                 title="学习证据",
                 lines=[
-                    f"典型表达：{'、'.join(evidence_stats['examples']) if evidence_stats['examples'] else '今天主要以完成任务和纠错为主。'}",
-                    f"学习证据评分：{evidence_stats['evidence_score']}",
+                    evidence_line,
+                    recall_line,
+                    f"掌握判断：{self._mastery_label(mastery_level)}",
                 ],
-            ),
-            CardSection(
-                title="掌握判断",
-                lines=[
-                    f"掌握度：{self._mastery_label(mastery_level)}",
-                    mastery_reason,
-                    model_summary,
-                    f"当前等级：{level_label}",
-                    f"今日新增积分：{stats['points_earned']} · 连续学习：{stats['current_streak']} 天",
-                ],
-            ),
-            CardSection(
-                title="昨日回捞表现",
-                lines=[
-                    f"{item['content_text']}：{'已复现' if item['recalled_successfully'] else '仍需强化'}"
-                    for item in recall_results
-                ] or ["今天没有需要回捞的历史内容。"],
             ),
             CardSection(
                 title="下一步",
-                lines=[
-                    "如果还没完成任务，发送 今日任务",
-                    "如果想巩固今天错误，发送 复习一下",
-                ],
+                lines=next_step_lines,
             ),
         ]
         document = CardDocument(
-            title="今日学习进度",
-            subtitle=task_status,
+            title="今晚进展",
+            subtitle=duo_status,
             sections=sections,
-            footer_lines=["固定命令：今日任务 / 复习一下 / 开始周测"],
+            footer_lines=["直接在群里继续用英文说/写即可，系统会自动归档。"],
             theme="blue",
+            metadata={
+                "chat_id": chat_id,
+                "biz_date": target_date.isoformat(),
+            },
         )
         card_snapshot = await self._learning_repo.upsert_daily_card_snapshot(
             biz_date=target_date,
@@ -457,6 +418,80 @@ class ReportUseCase:
                 "quiz_activity_count",
             ]
         )
+
+    def _build_weekly_growth_lines(self, *, stats: dict, level_label: str) -> list[str]:
+        lines: list[str] = []
+        if stats["learning_days"] > 0:
+            lines.append(f"已经保持了 {stats['learning_days']} 天的学习节奏。")
+        if stats["correction_count"] > 0:
+            lines.append(f"这周愿意暴露问题并主动修正 {stats['correction_count']} 次。")
+        if stats["task_completion_rate"] > 0:
+            lines.append(f"主线任务完成率达到 {stats['task_completion_rate']:.0%}。")
+        if stats["current_streak"] > 0:
+            lines.append(f"当前连续学习 {stats['current_streak']} 天，状态还在延续。")
+        lines.append(f"当前等级维持在 {level_label}，说明节奏已经建立起来。")
+        return lines[:3]
+
+    def _build_weekly_focus_lines(self, *, stats: dict) -> list[str]:
+        weak_points = [label_error_type(item) for item in stats["weak_points"]]
+        if weak_points:
+            return [
+                f"下周优先把「{weak_points[0]}」放进真实表达里修正。",
+                "继续保持每天一轮双人闭环，不额外加量。",
+            ]
+        return [
+            "下周继续沿着当前主题推进，优先稳住连续性。",
+            "保持每天一轮双人闭环，把复用表达带进真实对话。",
+        ]
+
+    def _pick_repair_items(self, *, digest: dict) -> list[dict[str, str]]:
+        items: list[dict[str, str]] = []
+        for item in digest["word_items"]:
+            explanation = f"（{item['explanation']}）" if item["explanation"] else ""
+            items.append(
+                {
+                    "source_line": f"表达：{item['source_fragment']}",
+                    "correct_line": f"{item['correct_fragment']}{explanation}",
+                    "correct_fragment": item["correct_fragment"],
+                }
+            )
+        for item in digest["grammar_items"]:
+            explanation = f"（{item['explanation']}）" if item["explanation"] else ""
+            items.append(
+                {
+                    "source_line": f"{label_error_type(item['error_type'])}：{item['source_fragment']}",
+                    "correct_line": f"{item['correct_fragment']}{explanation}",
+                    "correct_fragment": item["correct_fragment"],
+                }
+            )
+        if not items:
+            return [
+                {
+                    "source_line": "今天的错误点还没有整理出可展示的片段。",
+                    "correct_line": "今晚先围绕今天的主题重说一轮。",
+                    "correct_fragment": "围绕今天的主题重说一轮",
+                }
+            ]
+        return items[:3]
+
+    def _build_duo_progress(self, *, daily_session) -> tuple[str, str]:
+        if daily_session is None:
+            return "今天还没有双人 session。", "晨间执行卡发出后，直接开始 A→B 接棒。"
+        if daily_session.status == "completed":
+            return "今日双人闭环已完成。", "晚上看修正卡，明天继续交换角色。"
+        if daily_session.rescue_mode:
+            return "今天处于恢复模式。", "只完成最小闭环，不追之前欠下的内容。"
+        if daily_session.role_a_status != "completed":
+            return (
+                f"等待 {daily_session.role_a_label or 'A'} 发起第一棒。",
+                f"{daily_session.role_a_label or 'A'} 先用英文发 2-3 句。",
+            )
+        if daily_session.role_b_user_id is not None and daily_session.role_b_status != "completed":
+            return (
+                f"{daily_session.role_a_label or 'A'} 已发起，等待 {daily_session.role_b_label or 'B'} 接棒。",
+                f"{daily_session.role_b_label or 'B'} 追问、澄清或补充 2 句。",
+            )
+        return "今日双人进度进行中。", "继续围绕今天主题完成一轮英文互动。"
 
     def _determine_mastery_level(
         self,

@@ -5,18 +5,25 @@ import json
 import logging
 import threading
 import time
-from concurrent.futures import Future
+from concurrent.futures import Future, TimeoutError as FutureTimeoutError
+from datetime import date
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
+from lark_oapi.event.callback.model.p2_card_action_trigger import (
+    CallBackToast,
+    P2CardActionTrigger,
+    P2CardActionTriggerResponse,
+)
 
 from src.application.conversation_usecases import ConversationContext
+from src.application.feishu_card_action_usecases import FeishuCardActionResult, handle_feishu_card_action
 from src.application.message_intents import is_analysis_control_text
 from src.application.message_usecases import MessageCommandContext
 from src.infrastructure.channels.feishu import FeishuChannel
 from src.infrastructure.settings.container import get_container
 from src.plugins.command_catalog import is_fixed_command_text
-from src.plugins.commands import handle_fixed_command_text
+from src.plugins.command_handlers import handle_fixed_command_text
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +50,7 @@ class FeishuBot:
         event_handler = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(self._on_message)
+            .register_p2_card_action_trigger(self._on_card_action_trigger)
             .build()
         )
         ws_client = lark.ws.Client(
@@ -65,11 +73,8 @@ class FeishuBot:
             if self._enabled_chat_ids and chat_id not in self._enabled_chat_ids:
                 logger.info("feishu ignore message from disabled chat_id=%s", chat_id)
                 return
-            if msg.message_type != "text":
-                return
-
             content_obj = json.loads(msg.content) if msg.content else {}
-            text = content_obj.get("text", "")
+            text = content_obj.get("text", "") if msg.message_type == "text" else ""
 
             # 去掉 @机器人 的占位符
             is_mention_bot = False
@@ -79,7 +84,7 @@ class FeishuBot:
                     is_mention_bot = True
 
             text = text.strip()
-            if not text:
+            if msg.message_type == "text" and not text:
                 return
 
             sender = data.event.sender
@@ -87,9 +92,127 @@ class FeishuBot:
             nickname = ""
 
             logger.info("feishu dispatching: chat_id=%s user=%s text=%r mention=%s", chat_id, user_id, text[:50], is_mention_bot)
-            self._dispatch_sync(msg.message_id or "", chat_id, user_id, nickname, text, is_mention_bot)
+            self._dispatch_sync(
+                msg.message_id or "",
+                chat_id,
+                user_id,
+                nickname,
+                text,
+                is_mention_bot,
+                msg.message_type,
+            )
         except Exception:
             logger.exception("feishu message handler failed")
+
+    def _on_card_action_trigger(self, data: P2CardActionTrigger) -> P2CardActionTriggerResponse:
+        try:
+            event = data.event
+            action_value = {}
+            if event is not None and event.action is not None and isinstance(event.action.value, dict):
+                action_value = dict(event.action.value)
+            action = action_value.get("action")
+            if not isinstance(action, str) or not action:
+                return self._build_card_action_response("warning", "未识别卡片动作")
+
+            chat_id = str(action_value.get("chat_id") or "")
+            if not chat_id and event is not None and event.context is not None and event.context.open_chat_id:
+                chat_id = event.context.open_chat_id
+            if not chat_id:
+                return self._build_card_action_response("warning", "缺少 chat_id，上下文已过期")
+
+            biz_date_raw = action_value.get("biz_date")
+            try:
+                biz_date = (
+                    date.fromisoformat(biz_date_raw)
+                    if isinstance(biz_date_raw, str) and biz_date_raw
+                    else date.today()
+                )
+            except ValueError:
+                biz_date = date.today()
+
+            actor_open_id = "card-user"
+            if event is not None and event.operator is not None and event.operator.open_id:
+                actor_open_id = event.operator.open_id
+
+            logger.info(
+                "feishu card action trigger: action=%s chat_id=%s actor=%s",
+                action,
+                chat_id,
+                actor_open_id,
+            )
+            return self._dispatch_card_action_sync(
+                action=action,
+                chat_id=chat_id,
+                actor_open_id=actor_open_id,
+                biz_date=biz_date,
+            )
+        except Exception:
+            logger.exception("feishu card action handler failed")
+            return self._build_card_action_response("error", "处理失败，请稍后重试")
+
+    def _dispatch_card_action_sync(
+        self,
+        *,
+        action: str,
+        chat_id: str,
+        actor_open_id: str,
+        biz_date: date,
+    ) -> P2CardActionTriggerResponse:
+        if self._main_loop is None or not self._main_loop.is_running():
+            logger.error("feishu main loop unavailable, drop card action chat_id=%s", chat_id)
+            return self._build_card_action_response("error", "服务尚未就绪，请稍后重试")
+        try:
+            future: Future = asyncio.run_coroutine_threadsafe(
+                self._dispatch_card_action(
+                    action=action,
+                    chat_id=chat_id,
+                    actor_open_id=actor_open_id,
+                    biz_date=biz_date,
+                ),
+                self._main_loop,
+            )
+            result: FeishuCardActionResult = future.result(timeout=8)
+            return self._build_card_action_response(result.toast_type, result.toast_content)
+        except FutureTimeoutError:
+            logger.exception("feishu card action dispatch timeout")
+            return self._build_card_action_response("error", "处理超时，请稍后重试")
+        except Exception:
+            logger.exception("feishu card action dispatch failed")
+            return self._build_card_action_response("error", "处理失败，请稍后重试")
+
+    async def _dispatch_card_action(
+        self,
+        *,
+        action: str,
+        chat_id: str,
+        actor_open_id: str,
+        biz_date: date,
+    ) -> FeishuCardActionResult:
+        container = get_container()
+        if not container.runtime_config.is_feishu_enabled():
+            return FeishuCardActionResult(toast_type="warning", toast_content="飞书通道未启用")
+        if self._enabled_chat_ids and chat_id not in self._enabled_chat_ids:
+            return FeishuCardActionResult(toast_type="warning", toast_content="当前群未启用机器人")
+        if not container.runtime_config.is_enabled_chat(chat_id):
+            return FeishuCardActionResult(toast_type="warning", toast_content="当前群未启用机器人")
+        return await handle_feishu_card_action(
+            container=container,
+            action=action,
+            chat_id=chat_id,
+            actor_open_id=actor_open_id,
+            biz_date=biz_date,
+        )
+
+    @staticmethod
+    def _build_card_action_response(toast_type: str, toast_content: str) -> P2CardActionTriggerResponse:
+        response = P2CardActionTriggerResponse()
+        response.toast = CallBackToast(
+            {
+                "type": toast_type,
+                "content": toast_content,
+            }
+        )
+        return response
 
     def _dispatch_sync(
         self,
@@ -99,6 +222,7 @@ class FeishuBot:
         nickname: str,
         text: str,
         is_mention: bool,
+        message_type: str,
     ) -> None:
         """将协程提交到 NoneBot2 主事件循环中执行。"""
         if self._main_loop is None or not self._main_loop.is_running():
@@ -106,7 +230,7 @@ class FeishuBot:
             return
         try:
             future: Future = asyncio.run_coroutine_threadsafe(
-                self._dispatch(raw_event_id, chat_id, user_id, nickname, text, is_mention),
+                self._dispatch(raw_event_id, chat_id, user_id, nickname, text, is_mention, message_type),
                 self._main_loop,
             )
             future.add_done_callback(self._log_dispatch_failure)
@@ -127,6 +251,7 @@ class FeishuBot:
         nickname: str,
         text: str,
         is_mention: bool,
+        message_type: str,
     ) -> None:
         container = get_container()
         if not container.runtime_config.is_feishu_enabled():
@@ -141,7 +266,7 @@ class FeishuBot:
         if not container.runtime_config.is_enabled_chat(chat_id):
             return
 
-        if is_fixed_command_text(text):
+        if message_type == "text" and is_fixed_command_text(text):
             envelope = await handle_fixed_command_text(
                 group_id=chat_id,
                 group_name="",
@@ -152,17 +277,16 @@ class FeishuBot:
                 container=container,
             )
             await channel.send_envelope(chat_id, envelope)
-        elif is_analysis_control_text(text) or is_mention:
+        elif message_type == "text" and (is_analysis_control_text(text) or is_mention):
             # 分析指令 / @机器人 → 翻译/纠错/润色 (流式卡片输出)
             card_id: str | None = None
             sequence = 0
             last_update_time = 0.0
+            pending_update = False
 
             def _on_chunk(accumulated: str) -> None:
-                nonlocal card_id, sequence, last_update_time
+                nonlocal card_id, sequence, last_update_time, pending_update
                 now = time.monotonic()
-                if now - last_update_time < 0.2:  # throttle ~5 updates/sec
-                    return
                 if card_id is None:
                     # Lazy card creation — only when first chunk arrives
                     try:
@@ -174,8 +298,12 @@ class FeishuBot:
                         return
                 if card_id is None:
                     return
+                pending_update = True
+                if now - last_update_time < 0.15:  # batch updates, ~7/sec
+                    return
                 sequence += 1
                 last_update_time = now
+                pending_update = False
                 try:
                     channel.update_streaming_card_sync(card_id, accumulated, sequence)
                 except Exception:
@@ -194,6 +322,12 @@ class FeishuBot:
             )
 
             if card_id is not None:
+                if pending_update:
+                    sequence += 1
+                    try:
+                        channel.update_streaming_card_sync(card_id, reply, sequence)
+                    except Exception:
+                        pass
                 sequence += 1
                 try:
                     await channel.finalize_streaming_card(card_id, reply, sequence)
@@ -216,5 +350,6 @@ class FeishuBot:
                     user_id=user_id,
                     nickname=nickname,
                     message_text=text,
+                    message_type=message_type,
                 )
             )
