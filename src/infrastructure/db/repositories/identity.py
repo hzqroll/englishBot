@@ -20,6 +20,10 @@ class IdentityRepository:
         async with self._session_factory() as session:
             return await session.scalar(select(User).where(User.open_id == open_id))
 
+    async def get_user_by_id(self, user_id: int) -> User | None:
+        async with self._session_factory() as session:
+            return await session.get(User, user_id)
+
     async def ensure_group(self, chat_id: str, name: str = "") -> Group:
         async with self._session_factory() as session:
             group = await session.scalar(select(Group).where(Group.chat_id == chat_id))

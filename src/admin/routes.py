@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
+import time
 import typing
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -10,6 +13,7 @@ from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
+from src.application.feishu_card_action_usecases import handle_feishu_card_action
 from src.application.learning_usecases import EnrollmentContext
 from src.application.message_intents import (
     extract_explicit_dialogue_analysis_text,
@@ -447,6 +451,7 @@ def _serialize_envelope(envelope: MessageEnvelope | None) -> dict | None:
             "title": doc.title,
             "subtitle": doc.subtitle,
             "theme": doc.theme,
+            "metadata": doc.metadata,
             "sections": [
                 {"title": s.title, "lines": s.lines} for s in doc.sections
             ],
@@ -473,16 +478,164 @@ def _err(message: str) -> JSONResponse:
     return JSONResponse({"success": False, "error": message}, status_code=400)
 
 
+def _extract_card_action_payload(payload: dict[str, typing.Any]) -> tuple[str | None, dict[str, typing.Any], str | None]:
+    event = payload.get("event")
+    event_body = event if isinstance(event, dict) else payload
+    action_node = event_body.get("action") if isinstance(event_body, dict) else None
+    value: dict[str, typing.Any] = {}
+    if isinstance(action_node, dict):
+        raw_value = action_node.get("value")
+        if isinstance(raw_value, dict):
+            value = raw_value
+        elif isinstance(raw_value, str):
+            try:
+                decoded = json.loads(raw_value)
+                if isinstance(decoded, dict):
+                    value = decoded
+            except json.JSONDecodeError:
+                value = {}
+    action = value.get("action") if isinstance(value, dict) else None
+
+    operator = event_body.get("operator") if isinstance(event_body, dict) else None
+    open_id: str | None = None
+    if isinstance(operator, dict):
+        open_id = operator.get("open_id") or (operator.get("operator_id") or {}).get("open_id")
+    if not open_id and isinstance(event_body, dict):
+        user_node = event_body.get("user_id")
+        if isinstance(user_node, dict):
+            open_id = user_node.get("open_id")
+    if not open_id:
+        open_id = value.get("open_id") if isinstance(value, dict) else None
+    return action, value, open_id
+
+
+def _extract_feishu_token(payload: dict[str, typing.Any]) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    if isinstance(payload.get("token"), str):
+        return payload.get("token")
+    header = payload.get("header")
+    if isinstance(header, dict) and isinstance(header.get("token"), str):
+        return header.get("token")
+    event = payload.get("event")
+    if isinstance(event, dict):
+        if isinstance(event.get("token"), str):
+            return event.get("token")
+        event_header = event.get("header")
+        if isinstance(event_header, dict) and isinstance(event_header.get("token"), str):
+            return event_header.get("token")
+    return None
+
+
+def _verify_feishu_callback_auth(
+    *,
+    runtime_settings,
+    request: Request,
+    raw_body: bytes,
+    payload: dict[str, typing.Any],
+) -> tuple[bool, str]:
+    token = str(getattr(runtime_settings, "feishu_verification_token", "") or "")
+    encrypt_key = str(getattr(runtime_settings, "feishu_encrypt_key", "") or "")
+    max_skew = int(getattr(runtime_settings, "feishu_callback_max_skew_seconds", 3600) or 3600)
+
+    if not token and not encrypt_key:
+        return True, ""
+
+    if token:
+        payload_token = _extract_feishu_token(payload)
+        if payload_token is not None and payload_token != token:
+            return False, "token 验证失败"
+
+    if encrypt_key:
+        timestamp = request.headers.get("x-lark-request-timestamp", "")
+        nonce = request.headers.get("x-lark-request-nonce", "")
+        signature = request.headers.get("x-lark-signature", "")
+        if not timestamp or not nonce or not signature:
+            return False, "签名头缺失"
+        try:
+            ts = int(timestamp)
+        except ValueError:
+            return False, "timestamp 非法"
+        if abs(int(time.time()) - ts) > max_skew:
+            return False, "请求已过期"
+
+        digest = hashlib.sha256((timestamp + nonce + encrypt_key).encode("utf-8") + raw_body).hexdigest()
+        if not hmac.compare_digest(digest, signature):
+            return False, "签名验证失败"
+
+    return True, ""
+
+
+@router.post("/api/feishu/card-callback")
+async def feishu_card_callback(request: Request):
+    container = await _container(request)
+    try:
+        raw_body = await request.body()
+        payload = json.loads(raw_body.decode("utf-8") if raw_body else "{}")
+    except Exception:
+        return JSONResponse({"toast": {"type": "warning", "content": "无效请求体"}})
+
+    if not isinstance(payload, dict):
+        return JSONResponse({"toast": {"type": "warning", "content": "无效请求体"}})
+    runtime_settings = getattr(getattr(container, "settings", None), "runtime", None)
+    ok, reason = _verify_feishu_callback_auth(
+        runtime_settings=runtime_settings,
+        request=request,
+        raw_body=raw_body,
+        payload=payload,
+    )
+    if not ok:
+        return JSONResponse({"toast": {"type": "error", "content": reason}}, status_code=401)
+    if "challenge" in payload:
+        return JSONResponse({"challenge": payload["challenge"]})
+
+    action, value, open_id = _extract_card_action_payload(payload)
+    if not action:
+        return JSONResponse({"toast": {"type": "warning", "content": "未识别卡片动作"}})
+
+    chat_id = value.get("chat_id")
+    if not chat_id:
+        return JSONResponse({"toast": {"type": "warning", "content": "缺少 chat_id，上下文已过期"}})
+
+    biz_date_raw = value.get("biz_date")
+    try:
+        biz_date = date.fromisoformat(biz_date_raw) if isinstance(biz_date_raw, str) and biz_date_raw else date.today()
+    except ValueError:
+        biz_date = date.today()
+
+    actor_open_id = open_id or "card-user"
+    result = await handle_feishu_card_action(
+        container=container,
+        action=action,
+        chat_id=chat_id,
+        actor_open_id=actor_open_id,
+        biz_date=biz_date,
+    )
+    body: dict[str, typing.Any] = {
+        "toast": {
+            "type": result.toast_type,
+            "content": result.toast_content,
+        }
+    }
+    if result.data is not None:
+        body["data"] = result.data
+    return JSONResponse(body)
+
+
 async def _test_params(request: Request) -> tuple:
     """从 query/form 提取 group_id, user_id, nickname。"""
     container = await _container(request)
     params = request.query_params
     form = await request.form() if request.method == "POST" else {}
-    first_group = (
-        container.runtime_config.enabled_group_ids()[0]
-        if container.runtime_config.enabled_group_ids()
-        else "test_group"
-    )
+    runtime_config = getattr(container, "runtime_config", None)
+    enabled_groups: list[str] = []
+    if runtime_config is not None:
+        if hasattr(runtime_config, "enabled_group_ids"):
+            enabled_groups = list(runtime_config.enabled_group_ids() or [])
+        elif hasattr(runtime_config, "feishu_enabled_group_ids"):
+            enabled_groups = list(runtime_config.feishu_enabled_group_ids() or [])
+
+    first_group = enabled_groups[0] if enabled_groups else "test_group"
     group_id = params.get("group_id") or form.get("group_id") or first_group
     user_id = params.get("user_id") or form.get("user_id") or _TEST_DEFAULT_USER
     nickname = params.get("nickname") or form.get("nickname") or _TEST_DEFAULT_NICK

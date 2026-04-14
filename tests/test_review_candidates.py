@@ -73,6 +73,7 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
     yesterday_event = await learning_repo.create_message_event(
         raw_event_id="yesterday-correction",
         group_id=group.id,
+        session_id=None,
         user_id=user.id,
         message_text="I very like speak English.",
         event_type="at_message",
@@ -140,6 +141,7 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
     passive_event = await learning_repo.create_message_event(
         raw_event_id="today-passive-1",
         group_id=group.id,
+        session_id=None,
         user_id=user.id,
         message_text="Could we reschedule the meeting? This time works better for me.",
         event_type="group_message",
@@ -181,10 +183,10 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
         target_date=today,
     )
     assert envelope is not None
-    assert "昨日回捞" in envelope.plain_text
+    assert "今晚进展" in envelope.plain_text
     assert envelope.card_document is not None
-    assert any(section.title == "昨日回捞表现" for section in envelope.card_document.sections)
-    assert any(section.title == "掌握判断" for section in envelope.card_document.sections)
+    assert any(section.title == "学习证据" for section in envelope.card_document.sections)
+    assert any(section.title == "下一步" for section in envelope.card_document.sections)
     assert envelope.card_snapshot_id is not None
 
     evaluated = await learning_repo.list_review_candidates(
@@ -211,7 +213,7 @@ async def test_review_candidates_are_generated_and_reflected_in_progress(tmp_pat
         card_type="progress",
     )
     assert card_snapshot is not None
-    assert card_snapshot.card_document_json["title"] == "今日学习进度"
+    assert card_snapshot.card_document_json["title"] == "今晚进展"
 
     await engine.dispose()
 
@@ -241,6 +243,7 @@ async def test_daily_progress_uses_passive_conversation_activity(tmp_path):
     passive_event = await learning_repo.create_message_event(
         raw_event_id="passive-progress-1",
         group_id=group.id,
+        session_id=None,
         user_id=user.id,
         message_text="Could we move the meeting to Friday morning?",
         event_type="group_message",
@@ -278,8 +281,8 @@ async def test_daily_progress_uses_passive_conversation_activity(tmp_path):
     )
 
     assert envelope is not None
-    assert "今日发言" in envelope.plain_text
+    assert "今晚进展" in envelope.plain_text
     assert envelope.card_document is not None
-    assert any(section.title == "今日参与概览" for section in envelope.card_document.sections)
+    assert any(section.title == "今天到了哪" for section in envelope.card_document.sections)
 
     await engine.dispose()

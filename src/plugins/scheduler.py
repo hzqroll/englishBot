@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 from datetime import UTC, date, datetime, time
 
+from nonebot import get_bots
 from nonebot.log import logger
 from nonebot_plugin_apscheduler import scheduler
 from sqlalchemy.engine import make_url
@@ -17,12 +18,28 @@ def register_jobs() -> None:
     container = get_container()
     runtime_config = container.runtime_config
 
+    logger.info("register_jobs: registering scheduled jobs...")
+
     scheduler.add_job(
         daily_push_job,
         "cron",
         id="daily_push",
         replace_existing=True,
         **_cron_kwargs(runtime_config.cron("scheduler.daily_push_cron")),
+    )
+    scheduler.add_job(
+        midday_baton_job,
+        "cron",
+        id="midday_baton",
+        replace_existing=True,
+        **_cron_kwargs(runtime_config.cron("scheduler.midday_baton_cron")),
+    )
+    scheduler.add_job(
+        evening_baton_job,
+        "cron",
+        id="evening_baton",
+        replace_existing=True,
+        **_cron_kwargs(runtime_config.cron("scheduler.evening_baton_cron")),
     )
     scheduler.add_job(
         daily_error_digest_job,
@@ -38,13 +55,8 @@ def register_jobs() -> None:
         replace_existing=True,
         **_cron_kwargs(runtime_config.cron("scheduler.daily_progress_cron")),
     )
-    scheduler.add_job(
-        weekly_report_job,
-        "cron",
-        id="weekly_report",
-        replace_existing=True,
-        **_cron_kwargs(runtime_config.cron("scheduler.weekly_report_cron")),
-    )
+    # Weekly report is kept as a manual action ("本周总结"/admin trigger) to avoid
+    # interrupting daily execution with scheduled weekly cards.
     scheduler.add_job(
         weekly_quiz_job,
         "cron",
@@ -74,6 +86,11 @@ def register_jobs() -> None:
         **_cron_kwargs(runtime_config.cron("scheduler.sync_feishu_messages_cron")),
     )
 
+    jobs = scheduler.get_jobs()
+    logger.info("register_jobs: {} jobs registered", len(jobs))
+    for j in jobs:
+        logger.info("  job: {}", j.id)
+
 
 async def daily_push_job(force_run: bool = False) -> None:
     container = await get_or_init_container()
@@ -85,7 +102,7 @@ async def daily_push_job(force_run: bool = False) -> None:
         if container.runtime_config.is_feishu_enabled():
             for chat_id in container.runtime_config.feishu_enabled_group_ids():
                 await container.learning_usecase.build_today_lesson(chat_id=chat_id)
-                envelope = await container.learning_usecase.get_today_task_broadcast_envelope(chat_id=chat_id)
+                envelope = await container.daily_session_usecase.build_execution_envelope(chat_id=chat_id)
                 sent = await _send_group_envelope(
                     container=container,
                     group_id=chat_id,
@@ -103,6 +120,14 @@ async def daily_push_job(force_run: bool = False) -> None:
     except Exception:
         logger.exception("daily push job failed")
         await container.learning_repo.finish_job_lock(job_name="daily_push", biz_key=biz_key, status="failed")
+
+
+async def midday_baton_job(target_date: date | None = None, force_run: bool = False) -> None:
+    await _run_baton_job(job_name="midday_baton", phase="midday", target_date=target_date, force_run=force_run)
+
+
+async def evening_baton_job(target_date: date | None = None, force_run: bool = False) -> None:
+    await _run_baton_job(job_name="evening_baton", phase="evening", target_date=target_date, force_run=force_run)
 
 
 async def daily_error_digest_job(target_date: date | None = None, force_run: bool = False) -> None:
@@ -320,6 +345,15 @@ async def _send_group_envelope(
             success=True,
             provider_response="sent",
         )
+        # 发送后归档到飞书文档（非阻塞）— 跳过 Friends 内容（使用独立文档）
+        if container.feishu_docs_service is not None and job_name != "friends_dialogue":
+            await _save_to_feishu_docs(
+                container=container,
+                envelope=envelope,
+                card_type=job_name,
+                target_date=date.today(),
+            )
+        return True
     except Exception:
         logger.exception("failed to send message to group %s", group_id)
         await container.learning_repo.create_message_delivery_log(
@@ -333,15 +367,42 @@ async def _send_group_envelope(
         )
         return False
 
-    # 发送后归档到飞书文档（非阻塞）— 跳过 Friends 内容（使用独立文档）
-    if container.feishu_docs_service is not None and job_name != "friends_dialogue":
-        await _save_to_feishu_docs(
-            container=container,
-            envelope=envelope,
-            card_type=job_name,
-            target_date=date.today(),
-        )
-    return True
+
+async def _run_baton_job(
+    *,
+    job_name: str,
+    phase: str,
+    target_date: date | None = None,
+    force_run: bool = False,
+) -> None:
+    container = await get_or_init_container()
+    await container.runtime_config.refresh()
+    target_date = target_date or datetime.now().astimezone().date()
+    biz_key = target_date.isoformat()
+    if not await container.learning_repo.acquire_job_lock(job_name=job_name, biz_key=biz_key, force=force_run):
+        return
+    try:
+        if container.runtime_config.is_feishu_enabled():
+            for chat_id in container.runtime_config.feishu_enabled_group_ids():
+                reminder = await container.daily_session_usecase.build_baton_reminder(
+                    chat_id=chat_id,
+                    biz_date=target_date,
+                    phase=phase,
+                )
+                if reminder is None:
+                    continue
+                await _send_group_envelope(
+                    container=container,
+                    group_id=chat_id,
+                    envelope=reminder.envelope,
+                    mention_user_id=reminder.mention_open_id,
+                    user_id=reminder.mention_user_id,
+                    job_name=job_name,
+                )
+        await container.learning_repo.finish_job_lock(job_name=job_name, biz_key=biz_key, status="success")
+    except Exception:
+        logger.exception("%s job failed", job_name)
+        await container.learning_repo.finish_job_lock(job_name=job_name, biz_key=biz_key, status="failed")
 
 
 async def _save_to_feishu_docs(
@@ -391,7 +452,7 @@ async def daily_friends_job(force_run: bool = False) -> None:
         )
         segment = container.friends_usecase.provider.get_segment(target_date, start_date)
 
-        if container.runtime_config.is_feishu_enabled():
+        if container.channels.get("feishu") is not None:
             doc_url: str | None = None
             if container.feishu_docs_service is not None:
                 doc_url = await _save_friends_to_docs(

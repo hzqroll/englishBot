@@ -50,6 +50,11 @@ class FeishuDocsService:
         self._client.append_blocks(document_id=document_id, blocks=blocks)
         logger.info("feishu docs: appended %d blocks for %s/%s", len(blocks), card_type, target_date)
 
+    async def get_weekly_doc_url(self, *, target_date: date) -> str:
+        folder_token = await self._ensure_folder()
+        document_id = await self._ensure_weekly_doc(folder_token, target_date)
+        return f"https://bytedance.larkoffice.com/docx/{document_id}"
+
     # ------------------------------------------------------------------
     # folder / document lifecycle
     # ------------------------------------------------------------------

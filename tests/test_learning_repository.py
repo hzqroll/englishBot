@@ -27,6 +27,7 @@ async def test_learning_repository_builds_real_weekly_stats(tmp_path):
     translation_event = await learning_repo.create_message_event(
         raw_event_id="evt-1",
         group_id=group.id,
+        session_id=None,
         user_id=user.id,
         message_text="你好，世界",
         event_type="at_message",
@@ -40,6 +41,7 @@ async def test_learning_repository_builds_real_weekly_stats(tmp_path):
     correction_event = await learning_repo.create_message_event(
         raw_event_id="evt-2",
         group_id=group.id,
+        session_id=None,
         user_id=user.id,
         message_text="I very like English.",
         event_type="at_message",
@@ -119,6 +121,25 @@ async def test_learning_repository_builds_real_weekly_stats(tmp_path):
     lesson_detail = await learning_repo.get_today_lesson_detail(group_id=group.id, biz_date=date.today())
     target_items = await learning_repo.get_target_items_for_lesson(lesson_id=lesson_detail[0].id)
     target_terms = await learning_repo.get_target_terms_for_group_date(group_id=group.id, biz_date=date.today())
+    daily_session = await learning_repo.upsert_daily_session(
+        group_id=group.id,
+        biz_date=date.today(),
+        lesson_id=lesson_detail[0].id,
+        title=lesson_detail[0].title,
+        role_a_user_id=user.id,
+        role_a_label=user.nickname,
+        role_a_status="pending",
+        role_b_user_id=None,
+        role_b_label="",
+        role_b_status="pending",
+        required_chunks_json=["build confidence"],
+        capture_prompt="先发一段今日表达。",
+        rescue_mode=False,
+        voice_required=False,
+        benchmark_required=False,
+        status="active",
+        summary_json={"evidences": []},
+    )
     await learning_repo.submit_task(
         task_id=tasks[0].id,
         user_id=user.id,
@@ -239,6 +260,12 @@ async def test_learning_repository_builds_real_weekly_stats(tmp_path):
         user_id=user.id,
         card_type="progress",
     )
+    active_session = await learning_repo.get_active_daily_session(group_id=group.id, biz_date=date.today())
+    recent_sessions = await learning_repo.list_recent_daily_sessions(
+        group_id=group.id,
+        before_date=date.today().fromordinal(date.today().toordinal() + 1),
+        limit=3,
+    )
 
     assert evidence["translation_count"] == 1
     assert evidence["correction_count"] == 1
@@ -268,6 +295,9 @@ async def test_learning_repository_builds_real_weekly_stats(tmp_path):
     assert stored_card_snapshot is not None
     assert stored_card_snapshot.image_paths_json == ["/tmp/demo-card.png"]
     assert delivery_log.delivery_mode == "image_single"
+    assert active_session is not None
+    assert active_session.id == daily_session.id
+    assert recent_sessions[0].id == daily_session.id
 
     await engine.dispose()
 

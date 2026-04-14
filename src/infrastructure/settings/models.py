@@ -30,10 +30,15 @@ class AppRuntimeSettings(BaseSettings):
 
     feishu_app_id: str = ""
     feishu_app_secret: str = ""
+    feishu_verification_token: str = ""
+    feishu_encrypt_key: str = ""
+    feishu_callback_max_skew_seconds: int = 3600
 
 
 class SchedulerSettings(BaseModel):
     daily_push_cron: str = "0 8 * * *"
+    midday_baton_cron: str = "30 12 * * *"
+    evening_baton_cron: str = "30 18 * * *"
     daily_error_digest_cron: str = "0 18 * * *"
     daily_progress_cron: str = "0 20 * * *"
     weekly_report_cron: str = "0 9 * * 1"
@@ -62,6 +67,9 @@ class LearningSettings(BaseModel):
     score_per_task_completion: int = 10
     score_per_review_completion: int = 6
     score_per_quiz_completion: int = 20
+    voice_required_weekdays: list[int] = Field(default_factory=lambda: [1, 4])
+    monthly_benchmark_weekday: int = 6
+    rescue_lookback_days: int = 2
 
 
 class AdminUiSettings(BaseModel):

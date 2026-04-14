@@ -26,6 +26,9 @@ class _LearningRepoStub:
     def __init__(self) -> None:
         self.interaction_results: list[dict] = []
 
+    async def get_active_daily_session(self, **kwargs):
+        return None
+
     async def create_message_event(self, **kwargs):
         self.message_event = kwargs
         return SimpleNamespace(id=303)

@@ -30,7 +30,7 @@ admin:
 
 feishu:
     enabled_group_ids:
-      - "oc_3b6e699b17dbf82dbb792c80e996cbd1"
+      - "oc_9c6c87dddd8a0cb8277301607c1f20ff"
     context_ttl_minutes: 15
     docs:
         enabled: true

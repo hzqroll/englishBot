@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 
 from src.application.conversation_usecases import ConversationContext
-from src.application.learning_usecases import EnrollmentContext
 from src.domain.value_objects.messaging import MessageEnvelope
 from src.infrastructure.settings.container import ServiceContainer, get_or_init_container
 from src.plugins.command_catalog import match_fixed_command, render_help_text
@@ -15,26 +14,6 @@ def _to_envelope(message: str | MessageEnvelope) -> MessageEnvelope:
     return MessageEnvelope(plain_text=message)
 
 
-async def _handle_enroll(
-    *,
-    container: ServiceContainer,
-    group_id: str,
-    group_name: str,
-    user_id: str,
-    nickname: str,
-) -> str:
-    if not container.runtime_config.is_enabled_chat(group_id):
-        return "当前群未启用学习功能。"
-    return await container.learning_usecase.enroll(
-        EnrollmentContext(
-            chat_id=group_id,
-            group_name=group_name,
-            open_id=user_id,
-            nickname=nickname,
-        )
-    )
-
-
 async def _handle_today_task(
     *,
     container: ServiceContainer,
@@ -42,11 +21,8 @@ async def _handle_today_task(
     user_id: str,
     nickname: str,
 ) -> MessageEnvelope:
-    return await container.learning_usecase.get_today_task_envelope(
-        chat_id=group_id,
-        open_id=user_id,
-        nickname=nickname,
-    )
+    await container.learning_usecase.build_today_lesson(chat_id=group_id)
+    return await container.daily_session_usecase.build_execution_envelope(chat_id=group_id)
 
 
 async def _handle_submit_task(
@@ -185,15 +161,7 @@ async def handle_fixed_command_text(
         )
     )
     command_name = match_fixed_command(text)
-    if command_name == "报名学习":
-        message = await _handle_enroll(
-            container=container,
-            group_id=group_id,
-            group_name=group_name,
-            user_id=user_id,
-            nickname=nickname,
-        )
-    elif command_name == "今日任务":
+    if command_name == "今日任务":
         message = await _handle_today_task(
             container=container,
             group_id=group_id,

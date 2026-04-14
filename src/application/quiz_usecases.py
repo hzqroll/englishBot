@@ -52,8 +52,6 @@ class QuizUseCase:
     ) -> MessageEnvelope:
         group = await self._identity_repo.ensure_group(chat_id)
         user = await self._identity_repo.ensure_user(open_id, nickname)
-        if not await self._identity_repo.is_enrolled(user.id, group.id):
-            return MessageEnvelope(plain_text="请先发送“报名学习”后再开始周测。")
 
         target_date = target_date or datetime.now().astimezone().date()
         biz_week = target_date.strftime("%G-W%V")
@@ -140,8 +138,6 @@ class QuizUseCase:
     ) -> str:
         group = await self._identity_repo.ensure_group(chat_id)
         user = await self._identity_repo.ensure_user(open_id, nickname)
-        if not await self._identity_repo.is_enrolled(user.id, group.id):
-            return "你还没有报名学习。"
 
         session = await self._learning_repo.get_quiz_session(session_id=session_id)
         if session is None:

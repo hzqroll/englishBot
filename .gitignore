@@ -1,4 +1,4 @@
-.venv/
+.venv/*
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -12,3 +12,6 @@ data/
 .env
 deploy/.env
 deploy/config.yaml
+.gstack/*
+.omx/*
+/.playwright-mcp/*

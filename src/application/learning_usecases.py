@@ -49,14 +49,13 @@ class LearningUseCase:
     async def enroll(self, ctx: EnrollmentContext) -> str:
         group = await self._identity_repo.ensure_group(ctx.chat_id, ctx.group_name)
         user = await self._identity_repo.ensure_user(ctx.open_id, ctx.nickname)
-        await self._identity_repo.enroll_user(user.id, group.id)
         await self._learning_repo.upsert_user_level(
             user_id=user.id,
             group_id=group.id,
             current_level="beginner",
-            evidence_json={"source": "enrollment_default"},
+            evidence_json={"source": "auto_default"},
         )
-        return "报名成功，已加入英语训练营。你现在可以使用“今日任务”“复习一下”“开始周测”等命令。"
+        return "现在不需要报名，已默认开通学习。系统会自动推送每日执行卡。"
 
     async def build_today_lesson(self, *, chat_id: str, biz_date: date | None = None) -> LessonBundle:
         group = await self._identity_repo.ensure_group(chat_id)
@@ -126,10 +125,7 @@ class LearningUseCase:
         nickname: str,
     ) -> MessageEnvelope:
         group = await self._identity_repo.ensure_group(chat_id)
-        user = await self._identity_repo.ensure_user(open_id, nickname)
-        enrolled = await self._identity_repo.is_enrolled(user.id, group.id)
-        if not enrolled:
-            return MessageEnvelope(plain_text="你还没有报名学习，请先发送“报名学习”。")
+        await self._identity_repo.ensure_user(open_id, nickname)
 
         lesson_detail, tasks = await self._ensure_today_task_detail(group.id, chat_id)
         lesson, content = lesson_detail
@@ -176,9 +172,6 @@ class LearningUseCase:
     ) -> str:
         group = await self._identity_repo.ensure_group(chat_id)
         user = await self._identity_repo.ensure_user(open_id, nickname)
-        enrolled = await self._identity_repo.is_enrolled(user.id, group.id)
-        if not enrolled:
-            return "你还没有报名学习，请先发送“报名学习”。"
 
         score = min(max(len(content.strip()) // 6, 1), 10) * 10
         feedback = await self._feedback_provider.generate_feedback(
@@ -201,9 +194,6 @@ class LearningUseCase:
     async def review_now(self, *, chat_id: str, open_id: str, nickname: str, limit: int) -> str:
         group = await self._identity_repo.ensure_group(chat_id)
         user = await self._identity_repo.ensure_user(open_id, nickname)
-        enrolled = await self._identity_repo.is_enrolled(user.id, group.id)
-        if not enrolled:
-            return "你还没有报名学习，请先发送“报名学习”。"
 
         items = await self._learning_repo.get_due_review_items(user_id=user.id, limit=limit)
         if not items:
@@ -223,9 +213,6 @@ class LearningUseCase:
     async def refresh_user_level(self, *, chat_id: str, open_id: str, nickname: str) -> str:
         group = await self._identity_repo.ensure_group(chat_id)
         user = await self._identity_repo.ensure_user(open_id, nickname)
-        enrolled = await self._identity_repo.is_enrolled(user.id, group.id)
-        if not enrolled:
-            return "你还没有报名学习，请先发送“报名学习”。"
 
         evidence_payload = await self._learning_repo.get_learning_evidence(
             user_id=user.id,
@@ -278,7 +265,16 @@ class LearningUseCase:
         if previous_lesson is not None:
             previous_target_items = await self._learning_repo.get_target_items_for_lesson(lesson_id=previous_lesson[0].id)
 
-        users = await self._identity_repo.list_enrolled_users(group_id)
+        active_users = await self._identity_repo.list_group_active_users(group_id)
+        enrolled_users = await self._identity_repo.list_enrolled_users(group_id)
+        users: list = []
+        seen: set[int] = set()
+        for user in [*active_users, *enrolled_users]:
+            if user.id in seen:
+                continue
+            seen.add(user.id)
+            users.append(user)
+
         for user in users:
             digest = await self._learning_repo.get_daily_error_digest(
                 user_id=user.id,

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.application.admin_usecases import AdminUseCase
 from src.application.conversation_usecases import ConversationUseCase
+from src.application.daily_session_usecases import DailySessionUseCase
 from src.application.friends_usecases import FriendsUseCase
 from src.application.learning_usecases import LearningUseCase
 from src.application.message_usecases import MessageUseCase
@@ -54,6 +55,7 @@ class ServiceContainer:
     conversation_usecase: ConversationUseCase
     message_usecase: MessageUseCase
     learning_usecase: LearningUseCase
+    daily_session_usecase: DailySessionUseCase
     quiz_usecase: QuizUseCase
     report_usecase: ReportUseCase
     admin_usecase: AdminUseCase
@@ -104,6 +106,13 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
     error_aggregator = ErrorAggregator()
     review_scheduler = ReviewScheduler()
 
+    daily_session_usecase = DailySessionUseCase(
+        identity_repo=identity_repo,
+        learning_repo=learning_repo,
+        voice_required_weekdays=tuple(settings.static.learning.voice_required_weekdays),
+        monthly_benchmark_weekday=settings.static.learning.monthly_benchmark_weekday,
+        rescue_lookback_days=settings.static.learning.rescue_lookback_days,
+    )
     message_usecase = MessageUseCase(
         identity_repo=identity_repo,
         learning_repo=learning_repo,
@@ -113,6 +122,7 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         group_dialogue_store=group_dialogue_store,
         error_aggregator=error_aggregator,
         review_scheduler=review_scheduler,
+        daily_session_usecase=daily_session_usecase,
         recent_chat_min_sentences=10,
     )
     conversation_usecase = ConversationUseCase(
@@ -120,6 +130,7 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         learning_repo=learning_repo,
         analysis_service=conversation_analysis_service,
         group_dialogue_store=group_dialogue_store,
+        daily_session_usecase=daily_session_usecase,
     )
     learning_usecase = LearningUseCase(
         identity_repo=identity_repo,
@@ -196,6 +207,7 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         conversation_usecase=conversation_usecase,
         message_usecase=message_usecase,
         learning_usecase=learning_usecase,
+        daily_session_usecase=daily_session_usecase,
         quiz_usecase=quiz_usecase,
         report_usecase=report_usecase,
         admin_usecase=admin_usecase,

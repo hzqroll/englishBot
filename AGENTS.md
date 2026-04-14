@@ -21,9 +21,9 @@ uv run pytest tests/test_learning_repository.py
 # 运行单个测试函数
 uv run pytest tests/test_learning_repository.py::test_function_name
 
-# 部署到远程服务器
-rsync -avz --exclude='.venv' --exclude='__pycache__' --exclude='.git' src/ ubuntu@110.40.137.26:/home/ubuntu/englishBot/src/
-ssh ubuntu@110.40.137.26 "cd /home/ubuntu/englishBot && find src -name '__pycache__' -exec rm -rf {} +; sudo systemctl restart englishbot"
+# 部署到远程服务器（rsync 代码 → 重启）
+rsync -avz --exclude='.venv' --exclude='data' --exclude='.git' --exclude='__pycache__' --exclude='.env' --exclude='deploy/config.yaml' --exclude='deploy/.env' --exclude='.claude' --exclude='english_learning_*.egg-info' --exclude='docs' --exclude='tools' --exclude='tests' --exclude='alembic' --exclude='resources' --exclude='output' --exclude='uv.lock' --exclude='.idea' --exclude='.pytest_cache' --exclude='.zread' ./ ubuntu@110.40.137.26:~/englishBot/
+ssh ubuntu@110.40.137.26 "lsof -ti:8003 | xargs kill -9 2>/dev/null; sleep 2 && cd ~/englishBot && nohup uv run python -m src.main > /tmp/englishbot.log 2>&1 &"
 ```
 
 ## 架构概览
@@ -31,7 +31,7 @@ ssh ubuntu@110.40.137.26 "cd /home/ubuntu/englishBot && find src -name '__pycach
 基于 Clean Architecture 的英语学习飞书机器人，分为四层：
 
 - **`src/plugins/`** — NoneBot2 插件，消息与调度入口（`command_handlers.py` 可复用命令逻辑、`scheduler.py` 定时任务、`command_catalog.py` 命令路由注册）
-- **`src/application/`** — 用例层，编排业务流程（MessageUseCase、LearningUseCase、QuizUseCase、ReportUseCase、ConversationUseCase）
+- **`src/application/`** — 用例层，编排业务流程（MessageUseCase、LearningUseCase、QuizUseCase、ReportUseCase、FriendsUseCase、ConversationUseCase）
 - **`src/domain/`** — 领域层，纯业务规则：实体（entities/）、领域服务（services/）、值对象（value_objects/）
 - **`src/infrastructure/`** — 基础设施层：数据库（db/）、外部服务（providers/）、配置（settings/）、鉴权（auth/）、缓存（cache/）、渠道适配（channels/）
 - **`src/admin/`** — FastAPI + Jinja2 管理后台
@@ -53,6 +53,15 @@ ssh ubuntu@110.40.137.26 "cd /home/ubuntu/englishBot && find src -name '__pycach
 - 消息路由：固定命令走 `handle_fixed_command_text`，分析指令和 @机器人 走 `message_usecase.handle_at_message`
 - 学习内容自动归档到飞书文档（周文档 + Friends 按集文档），通过 `FeishuDocsService` 管理
 
+### CardKit 流式卡片
+
+@机器人 翻译/纠错使用飞书 CardKit 流式卡片输出：
+1. `_create_streaming_card_impl()` — 创建卡片实体（`cardkit.v1.card.create`），发送消息（`im.v1.message.create`），content 格式必须为 `{"type": "card", "data": {"card_id": "xxx"}}`
+2. `_update_streaming_card_impl()` — PUT 全量文本更新卡片
+3. `finalize_streaming_card()` — 最终格式化替换
+- 卡片 JSON 必须包含 `streaming_mode: true`、`element_id`，不能有 `direction: vertical`
+- 两层 throttle：LLM provider 层（无 throttle，每个 token 即回调）+ feishu_bot 层（0.15s 窗口批量发送）
+
 ### 依赖注入
 
 手动 DI 容器 `ServiceContainer`（`src/infrastructure/settings/container.py`），在 `src/main.py` 启动时通过 `ensure_container()` 构建。全局单例通过 `get_container()` / `set_container()` 访问。
@@ -71,13 +80,19 @@ ssh ubuntu@110.40.137.26 "cd /home/ubuntu/englishBot && find src -name '__pycach
 
 两层配置：
 1. **运行时配置**（`.env`）：密钥、端口、数据库 URL — `AppRuntimeSettings`（pydantic-settings）
-2. **静态配置**（`config.yaml`）：调度 cron、学习参数、机器人行为 — `StaticConfig`（pydantic BaseModel）
+2. **静态配置**（`config.yaml`）：调度 cron、学习参数、机器人行为、LLM prompts — `StaticConfig`（pydantic BaseModel）
 
 还有数据库层的动态配置覆盖 `RuntimeConfigService`，管理后台可修改。
+
+线上配置（`.env`）：
+- `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_GROUP_ID` — 生产飞书应用
+- `FEISHU_TEST_APP_ID` / `FEISHU_TEST_APP_SECRET` / `FEISHU_TEST_GROUP` — 测试飞书应用（本地测试用）
 
 ### 数据库
 
 SQLite + SQLAlchemy 2.0 async（aiosqlite）。ORM 模型在 `src/infrastructure/db/models.py`，数据访问通过 Repository 模式（`IdentityRepository`、`LearningRepository`、`AdminRepository`）。启动时自动建表和 schema 升级（`_upgrade_sqlite_schema`）。
+
+**远程部署注意**：新 ORM 列（如 `channel`、`push_status` 等）可能不在远程 DB 中，需要手动 `ALTER TABLE ADD COLUMN`。可用 `_upgrade_sqlite_schema` 或直接 sqlite3 操作。同步代码后务必检查表结构一致性。
 
 ### 消息流程
 
@@ -103,8 +118,9 @@ UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`
 5. **weekly_quiz** — 周测（周日 19:00）
 6. **nightly_backup** — 数据库备份（每日 2:00）
 7. **daily_friends** — 每日 Friends 对话推送（默认 9:00）
+8. **sync_feishu_messages** — 同步飞书历史消息（默认 17:50）
 
-所有任务通过 `acquire_job_lock()` 防止并发执行，管理后台 `/admin/triggers/{job_name}` 支持手动触发。所有任务推送到飞书群。
+所有任务通过 `acquire_job_lock()` 防止并发执行。手动触发：管理后台 `/admin/triggers/{job_name}` 或 API `/api/test/trigger/{job_name}`（无鉴权，支持 `force_rerun=true`）。
 
 ### 错误分类体系
 
@@ -124,7 +140,7 @@ UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`
 
 `src/admin/routes.py` 中 FastAPI 路由，Session 认证。关键页面：
 - `/admin/debug` — 测试翻译/纠错/LLM 流程
-- `/admin/cards` — 生成任务/周测/周报的卡片预览
+- `/admin/llm` — LLM 提示词测试页，支持流式响应
 - `/admin/settings` — 运行时配置覆盖，修改后自动刷新调度器
 - `/admin/triggers/{job_name}` — 手动触发定时任务
 - `/admin/groups` — 群组管理
@@ -138,5 +154,6 @@ UseCase 统一返回 `MessageEnvelope`（`src/domain/value_objects/messaging.py`
 - `alembic/` 目录已初始化但当前使用启动时 auto-create，非强制迁移
 - Provider 缺少配置时走降级而非报错
 - 测试用轻量 stub 类注入依赖，数据库测试用 `tmp_path` 临时 SQLite，不依赖 mock 框架
-- 测试飞书功能，使用测试群ID：FEISHU_TEST_GROUP
-- 远程服务器：ubuntu@110.40.137.26 可以免密登录，我已经配置了私钥在远程服务器上面
+- 远程部署使用线上配置（`FEISHU_APP_ID` 等），本地测试使用测试配置（`FEISHU_TEST_APP_ID` 等）
+- 远程服务器：ubuntu@110.40.137.26，免密 SSH，服务运行在端口 8003
+- 本地测试启动：`FEISHU_APP_ID=cli_a9520ead23b91bb5 FEISHU_APP_SECRET=xxx .venv/bin/python -m src.main`

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -47,12 +48,57 @@ class _ContainerStub:
         self.runtime_config = _RuntimeConfigStub(enabled=enabled)
         self.channels = {"feishu": _FakeFeishuChannel()}
         self.group_dialogue_store = SimpleNamespace(append_group_message=lambda **kw: None)
+        self.at_calls: list[dict] = []
+        self.passive_calls: list[dict] = []
+        self.card_actions: list[tuple[str, str, str, object]] = []
 
         async def _handle_at_message(ctx, *, stream_callback=None):
+            self.at_calls.append(
+                {
+                    "raw_event_id": ctx.raw_event_id,
+                    "group_id": ctx.group_id,
+                    "user_id": ctx.user_id,
+                    "message_text": ctx.message_text,
+                }
+            )
             return "mock reply"
 
         self.message_usecase = SimpleNamespace(handle_at_message=_handle_at_message)
-        self.conversation_usecase = SimpleNamespace(observe_passive_group_message=lambda *a, **kw: None)
+
+        async def _observe_passive_group_message(ctx):
+            self.passive_calls.append(
+                {
+                    "raw_event_id": ctx.raw_event_id,
+                    "group_id": ctx.group_id,
+                    "user_id": ctx.user_id,
+                    "message_text": ctx.message_text,
+                    "message_type": ctx.message_type,
+                }
+            )
+
+        self.conversation_usecase = SimpleNamespace(observe_passive_group_message=_observe_passive_group_message)
+
+        async def _claim_baton(*, chat_id: str, actor_open_id: str, biz_date):
+            self.card_actions.append(("claim_baton", chat_id, actor_open_id, biz_date))
+            return f"claim:{chat_id}:{actor_open_id}:{biz_date.isoformat()}"
+
+        async def _enter_rescue_mode(*, chat_id: str, actor_open_id: str, biz_date):
+            self.card_actions.append(("enter_rescue", chat_id, actor_open_id, biz_date))
+            return f"rescue:{chat_id}:{actor_open_id}:{biz_date.isoformat()}"
+
+        async def _remind_later(*, chat_id: str, actor_open_id: str, biz_date):
+            self.card_actions.append(("remind_later", chat_id, actor_open_id, biz_date))
+            return f"later:{chat_id}:{actor_open_id}:{biz_date.isoformat()}"
+
+        async def _weekly_doc_url(*, target_date):
+            return f"https://example.com/week-{target_date.isoformat()}"
+
+        self.daily_session_usecase = SimpleNamespace(
+            claim_baton=_claim_baton,
+            enter_rescue_mode=_enter_rescue_mode,
+            remind_later=_remind_later,
+        )
+        self.feishu_docs_service = SimpleNamespace(get_weekly_doc_url=_weekly_doc_url)
 
 
 def _build_bot(*, enabled_chat_ids: list[str] | None = None, main_loop=None) -> FeishuBot:
@@ -63,19 +109,13 @@ def _build_bot(*, enabled_chat_ids: list[str] | None = None, main_loop=None) -> 
 
 
 @pytest.mark.asyncio
-async def test_analysis_control_text_without_mention_routes_to_command_handler(monkeypatch) -> None:
+async def test_analysis_control_text_without_mention_routes_to_at_message(monkeypatch) -> None:
     import src.infrastructure.channels.feishu_bot as module
 
     container = _ContainerStub()
-    command_calls: list[dict] = []
-
-    async def _fake_handle_fixed_command_text(**kwargs):
-        command_calls.append(kwargs)
-        return MessageEnvelope(plain_text="analysis result")
 
     monkeypatch.setattr(module, "get_container", lambda: container)
     monkeypatch.setattr(module, "FeishuChannel", _FakeFeishuChannel)
-    monkeypatch.setattr(module, "handle_fixed_command_text", _fake_handle_fixed_command_text)
 
     bot = _build_bot()
 
@@ -86,22 +126,18 @@ async def test_analysis_control_text_without_mention_routes_to_command_handler(m
         nickname="tester",
         text="分析最近聊天内容",
         is_mention=False,
+        message_type="text",
     )
 
-    assert command_calls == [
+    assert container.at_calls == [
         {
-            "group_id": "oc_chat_1",
-            "group_name": "",
-            "user_id": "u1",
-            "nickname": "tester",
-            "text": "分析最近聊天内容",
             "raw_event_id": "evt-1",
-            "container": container,
+            "group_id": "oc_chat_1",
+            "user_id": "u1",
+            "message_text": "分析最近聊天内容",
         }
     ]
-    assert container.channels["feishu"].sent_envelopes == [
-        ("oc_chat_1", MessageEnvelope(plain_text="analysis result"))
-    ]
+    assert container.channels["feishu"].sent_texts == [("oc_chat_1", "mock reply")]
     assert container.runtime_config.calls == ["oc_chat_1"]
 
 
@@ -129,6 +165,7 @@ async def test_dispatch_ignores_disabled_chat_id(monkeypatch) -> None:
         nickname="tester",
         text="分析最近聊天内容",
         is_mention=False,
+        message_type="text",
     )
 
     assert command_calls == []
@@ -171,8 +208,97 @@ def test_dispatch_sync_submits_coroutine_to_main_loop(monkeypatch) -> None:
         nickname="tester",
         text="分析最近聊天内容",
         is_mention=False,
+        message_type="text",
     )
 
     assert submitted["loop"] is bot._main_loop
     assert submitted["coro_name"] == "_dispatch"
     assert submitted["future"].callback == bot._log_dispatch_failure
+
+
+@pytest.mark.asyncio
+async def test_audio_message_routes_to_passive_observer(monkeypatch) -> None:
+    import src.infrastructure.channels.feishu_bot as module
+
+    container = _ContainerStub()
+
+    monkeypatch.setattr(module, "get_container", lambda: container)
+    monkeypatch.setattr(module, "FeishuChannel", _FakeFeishuChannel)
+
+    bot = _build_bot()
+
+    await bot._dispatch(
+        raw_event_id="evt-audio",
+        chat_id="oc_chat_1",
+        user_id="u1",
+        nickname="tester",
+        text="",
+        is_mention=False,
+        message_type="audio",
+    )
+
+    assert container.passive_calls == [
+        {
+            "raw_event_id": "evt-audio",
+            "group_id": "oc_chat_1",
+            "user_id": "u1",
+            "message_text": "",
+            "message_type": "audio",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_card_action_routes_to_daily_session_usecase(monkeypatch) -> None:
+    import src.infrastructure.channels.feishu_bot as module
+
+    container = _ContainerStub()
+    monkeypatch.setattr(module, "get_container", lambda: container)
+
+    bot = _build_bot()
+    result = await bot._dispatch_card_action(
+        action="claim_baton",
+        chat_id="oc_chat_1",
+        actor_open_id="u1",
+        biz_date=date(2026, 4, 13),
+    )
+
+    assert result.toast_type == "success"
+    assert result.toast_content.startswith("claim:oc_chat_1:u1:2026-04-13")
+    assert container.card_actions == [("claim_baton", "oc_chat_1", "u1", date(2026, 4, 13))]
+
+
+def test_on_card_action_trigger_parses_payload_and_returns_toast(monkeypatch) -> None:
+    import src.infrastructure.channels.feishu_bot as module
+
+    captured: dict[str, object] = {}
+
+    def _fake_dispatch_card_action_sync(*, action: str, chat_id: str, actor_open_id: str, biz_date):
+        captured.update(
+            {
+                "action": action,
+                "chat_id": chat_id,
+                "actor_open_id": actor_open_id,
+                "biz_date": biz_date,
+            }
+        )
+        return module.FeishuBot._build_card_action_response("success", "ok")
+
+    bot = _build_bot()
+    monkeypatch.setattr(bot, "_dispatch_card_action_sync", _fake_dispatch_card_action_sync)
+
+    data = SimpleNamespace(
+        event=SimpleNamespace(
+            action=SimpleNamespace(value={"action": "claim_baton", "chat_id": "oc_chat_1", "biz_date": "2026-04-13"}),
+            operator=SimpleNamespace(open_id="u1"),
+            context=SimpleNamespace(open_chat_id="oc_fallback"),
+        )
+    )
+    response = bot._on_card_action_trigger(data)
+
+    assert captured["action"] == "claim_baton"
+    assert captured["chat_id"] == "oc_chat_1"
+    assert captured["actor_open_id"] == "u1"
+    assert str(captured["biz_date"]) == "2026-04-13"
+    assert response.toast.type == "success"
+    assert response.toast.content == "ok"

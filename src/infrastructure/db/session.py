@@ -53,6 +53,10 @@ def _upgrade_sqlite_schema(connection: Any) -> None:
         add_column_statements.append(
             "ALTER TABLE message_events ADD COLUMN biz_date_local DATE"
         )
+    if "session_id" not in message_event_columns:
+        add_column_statements.append(
+            "ALTER TABLE message_events ADD COLUMN session_id INTEGER"
+        )
 
     for statement in add_column_statements:
         connection.exec_driver_sql(statement)
@@ -79,12 +83,20 @@ def _upgrade_sqlite_schema(connection: Any) -> None:
         "ON message_events (group_id, user_id, biz_date_local)"
     )
     connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_message_events_session_id "
+        "ON message_events (session_id)"
+    )
+    connection.exec_driver_sql(
         "CREATE INDEX IF NOT EXISTS ix_conversation_evidences_user_group_biz_type "
         "ON conversation_evidences (user_id, group_id, biz_date, evidence_type)"
     )
     connection.exec_driver_sql(
         "CREATE INDEX IF NOT EXISTS ix_daily_target_items_lesson_sort "
         "ON daily_target_items (lesson_id, sort_order)"
+    )
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_daily_sessions_group_biz "
+        "ON daily_sessions (group_id, biz_date)"
     )
     connection.exec_driver_sql(
         "CREATE INDEX IF NOT EXISTS ix_review_candidates_user_group_biz "
