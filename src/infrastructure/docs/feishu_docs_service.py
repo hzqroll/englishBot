@@ -149,6 +149,7 @@ _CARD_TYPE_LABELS: dict[str, str] = {
     "daily_lesson": "每日任务",
     "error_digest": "错误摘要",
     "progress": "学习进度",
+    "daily_summary": "每日总结",
     "weekly_report": "周报",
     "friends_dialogue": "Friends 对话",
 }

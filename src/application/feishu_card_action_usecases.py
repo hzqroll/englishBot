@@ -21,6 +21,8 @@ async def handle_feishu_card_action(
     chat_id: str,
     actor_open_id: str,
     biz_date: date,
+    card_snapshot_id: int | None = None,
+    target_open_id: str | None = None,
 ) -> FeishuCardActionResult:
     try:
         if action == "open_week_doc":
@@ -34,6 +36,60 @@ async def handle_feishu_card_action(
                 toast_type="success",
                 toast_content="已准备本周文档",
                 data={"doc_url": doc_url},
+            )
+
+        copy_action_to_field = {
+            "copy_goal_image_prompt": "今日目标图",
+            "copy_summary_image_prompt": "今日学习总结图",
+            "copy_passage_image_prompt": "练习短文图",
+        }
+        if action in copy_action_to_field:
+            group = await container.identity_repo.ensure_group(chat_id)
+            target_user_id: int | None = None
+            if card_snapshot_id is not None and hasattr(container.learning_repo, "get_daily_card_snapshot_by_id"):
+                card_snapshot = await container.learning_repo.get_daily_card_snapshot_by_id(card_snapshot_id)
+                if card_snapshot is not None and card_snapshot.group_id == group.id and card_snapshot.user_id is not None:
+                    target_user_id = card_snapshot.user_id
+            if target_user_id is None and target_open_id:
+                get_user_by_open_id = getattr(container.identity_repo, "get_user_by_open_id", None)
+                if callable(get_user_by_open_id):
+                    target_user = await get_user_by_open_id(target_open_id)
+                else:
+                    target_user = await container.identity_repo.ensure_user(target_open_id)
+                if target_user is not None:
+                    target_user_id = target_user.id
+            if target_user_id is None:
+                user = await container.identity_repo.ensure_user(actor_open_id)
+                target_user_id = user.id
+            snapshot = await container.learning_repo.get_daily_learning_snapshot(
+                user_id=target_user_id,
+                group_id=group.id,
+                biz_date=biz_date,
+            )
+            if snapshot is None:
+                return FeishuCardActionResult(
+                    toast_type="warning",
+                    toast_content="还没有可复制的提示词，请先等待每日总结生成。",
+                )
+            payload = dict(snapshot.summary_json or {}).get("xhs_payload", {})
+            image_prompts = payload.get("图片生成提示词", {}) if isinstance(payload, dict) else {}
+            prompt_field = copy_action_to_field[action]
+            prompt_text = image_prompts.get(prompt_field, "") if isinstance(image_prompts, dict) else ""
+            if not isinstance(prompt_text, str) or not prompt_text.strip():
+                return FeishuCardActionResult(
+                    toast_type="warning",
+                    toast_content="提示词暂未生成，请稍后重试。",
+                )
+            channel = container.channels.get("feishu")
+            if channel is None:
+                return FeishuCardActionResult(
+                    toast_type="warning",
+                    toast_content="飞书通道不可用，无法发送提示词。",
+                )
+            await channel.send_text(chat_id=chat_id, text=prompt_text.strip(), mention_user=actor_open_id)
+            return FeishuCardActionResult(
+                toast_type="success",
+                toast_content="已发送完整提示词，直接复制即可。",
             )
 
         if container.daily_session_usecase is None:

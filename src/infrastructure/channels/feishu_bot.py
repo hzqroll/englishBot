@@ -133,6 +133,13 @@ class FeishuBot:
             actor_open_id = "card-user"
             if event is not None and event.operator is not None and event.operator.open_id:
                 actor_open_id = event.operator.open_id
+            card_snapshot_raw = action_value.get("card_snapshot_id")
+            card_snapshot_id: int | None = None
+            if isinstance(card_snapshot_raw, int):
+                card_snapshot_id = card_snapshot_raw
+            elif isinstance(card_snapshot_raw, str) and card_snapshot_raw.isdigit():
+                card_snapshot_id = int(card_snapshot_raw)
+            target_open_id = action_value.get("target_open_id") if isinstance(action_value.get("target_open_id"), str) else None
 
             logger.info(
                 "feishu card action trigger: action=%s chat_id=%s actor=%s",
@@ -145,6 +152,8 @@ class FeishuBot:
                 chat_id=chat_id,
                 actor_open_id=actor_open_id,
                 biz_date=biz_date,
+                card_snapshot_id=card_snapshot_id,
+                target_open_id=target_open_id,
             )
         except Exception:
             logger.exception("feishu card action handler failed")
@@ -157,6 +166,8 @@ class FeishuBot:
         chat_id: str,
         actor_open_id: str,
         biz_date: date,
+        card_snapshot_id: int | None = None,
+        target_open_id: str | None = None,
     ) -> P2CardActionTriggerResponse:
         if self._main_loop is None or not self._main_loop.is_running():
             logger.error("feishu main loop unavailable, drop card action chat_id=%s", chat_id)
@@ -168,6 +179,8 @@ class FeishuBot:
                     chat_id=chat_id,
                     actor_open_id=actor_open_id,
                     biz_date=biz_date,
+                    card_snapshot_id=card_snapshot_id,
+                    target_open_id=target_open_id,
                 ),
                 self._main_loop,
             )
@@ -187,6 +200,8 @@ class FeishuBot:
         chat_id: str,
         actor_open_id: str,
         biz_date: date,
+        card_snapshot_id: int | None = None,
+        target_open_id: str | None = None,
     ) -> FeishuCardActionResult:
         container = get_container()
         if not container.runtime_config.is_feishu_enabled():
@@ -201,6 +216,8 @@ class FeishuBot:
             chat_id=chat_id,
             actor_open_id=actor_open_id,
             biz_date=biz_date,
+            card_snapshot_id=card_snapshot_id,
+            target_open_id=target_open_id,
         )
 
     @staticmethod

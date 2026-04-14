@@ -210,6 +210,31 @@ class LearningUseCase:
         )
         return "以下是当前到期复习项：\n" + "\n".join(lines)
 
+    async def add_new_words(
+        self,
+        *,
+        chat_id: str,
+        open_id: str,
+        nickname: str,
+        words: list[str],
+        biz_date: date | None = None,
+    ) -> str:
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
+        target_date = biz_date or date.today()
+        inserted, duplicated = await self._learning_repo.upsert_daily_user_words(
+            biz_date=target_date,
+            user_id=user.id,
+            group_id=group.id,
+            words=words,
+        )
+        if inserted <= 0 and duplicated <= 0:
+            return "没有识别到有效新词，请使用：添加新词 word1 word2"
+        return (
+            f"已记录今日新词 {inserted} 个"
+            + (f"，忽略重复 {duplicated} 个。" if duplicated > 0 else "。")
+        )
+
     async def refresh_user_level(self, *, chat_id: str, open_id: str, nickname: str) -> str:
         group = await self._identity_repo.ensure_group(chat_id)
         user = await self._identity_repo.ensure_user(open_id, nickname)

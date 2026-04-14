@@ -28,6 +28,7 @@
         <option value="analyze-dialogue">对话分析 (analyze-dialogue)</option>
         <option value="weekly-report">周报摘要 (weekly-report)</option>
         <option value="daily-progress">日进度摘要 (daily-progress)</option>
+        <option value="daily-summary">日报+小红书 (daily-summary)</option>
         <option value="friends-analysis">Friends 分析 (friends-analysis)</option>
         <option value="__free__">自由测试 (free chat)</option>
       </select>
@@ -247,6 +248,17 @@
         { name: 'today_task_total', label: '总任务数', type: 'number', required: true, placeholder: '2' },
         { name: 'mastery_label', label: '掌握度', type: 'text', required: true, placeholder: '基本掌握' },
         { name: 'mastery_reason', label: '掌握度依据', type: 'text', required: true, placeholder: '本周完成率较高，纠错后改正积极' },
+      ],
+    },
+    'daily-summary': {
+      promptKey: 'daily_summary_xhs_prompt',
+      promptLabel: 'prompt_template',
+      fields: [
+        { name: 'daily_goal', label: '今日目标', type: 'text', required: true, rows: 2, placeholder: 'Practice one workplace exchange with key phrases.' },
+        { name: 'required_phrases', label: '今日练习词语', type: 'text', required: true, rows: 2, placeholder: 'follow up, circle back, wrap up' },
+        { name: 'today_dialogues', label: '今日练习文本', type: 'text', required: true, rows: 5, placeholder: 'A: ...\\nB: ...' },
+        { name: 'yesterday_dialogues', label: '回捞结果', type: 'text', required: true, rows: 3, placeholder: 'Yesterday phrase X was reused once.' },
+        { name: 'new_words_today', label: '今日新学单词', type: 'text', required: true, rows: 2, placeholder: 'resilient, align, backlog' },
       ],
     },
     'friends-analysis': {

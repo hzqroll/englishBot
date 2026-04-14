@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 
 from src.application.conversation_usecases import ConversationContext
 from src.domain.value_objects.messaging import MessageEnvelope
@@ -122,6 +123,29 @@ async def _handle_submit_quiz(
     )
 
 
+async def _handle_add_new_words(
+    *,
+    container: ServiceContainer,
+    group_id: str,
+    user_id: str,
+    nickname: str,
+    text: str,
+) -> str:
+    payload = text.removeprefix("添加新词").strip()
+    if not payload:
+        return "格式示例：添加新词 resilient deadline wrap-up"
+    parts = [item.strip() for item in re.split(r"[\s,，;；\n]+", payload) if item.strip()]
+    if not parts:
+        return "格式示例：添加新词 resilient deadline wrap-up"
+    return await container.learning_usecase.add_new_words(
+        chat_id=group_id,
+        open_id=user_id,
+        nickname=nickname,
+        words=parts,
+        biz_date=date.today(),
+    )
+
+
 async def _handle_weekly_report(
     *,
     container: ServiceContainer,
@@ -199,6 +223,14 @@ async def handle_fixed_command_text(
         )
     elif command_name == "答题":
         message = await _handle_submit_quiz(
+            container=container,
+            group_id=group_id,
+            user_id=user_id,
+            nickname=nickname,
+            text=text,
+        )
+    elif command_name == "添加新词":
+        message = await _handle_add_new_words(
             container=container,
             group_id=group_id,
             user_id=user_id,

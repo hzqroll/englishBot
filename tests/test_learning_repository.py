@@ -201,6 +201,22 @@ async def test_learning_repository_builds_real_weekly_stats(tmp_path):
         group_id=group.id,
         target_date=datetime.now().astimezone().date(),
     )
+    inserted_words, duplicated_words = await learning_repo.upsert_daily_user_words(
+        biz_date=date.today(),
+        user_id=user.id,
+        group_id=group.id,
+        words=["resilient", "backlog", "resilient"],
+    )
+    daily_words = await learning_repo.list_daily_user_words(
+        biz_date=date.today(),
+        user_id=user.id,
+        group_id=group.id,
+    )
+    practice_texts = await learning_repo.list_daily_practice_texts(
+        biz_date=date.today(),
+        user_id=user.id,
+        group_id=group.id,
+    )
     recent_tasks = await learning_repo.get_recent_tasks_for_quiz(group_id=group.id, limit=5)
     evidence_stats = await learning_repo.get_daily_conversation_evidence_stats(
         user_id=user.id,
@@ -283,6 +299,11 @@ async def test_learning_repository_builds_real_weekly_stats(tmp_path):
     assert daily_progress["today_task_completed"] == 1
     assert daily_progress["points_earned"] == 16
     assert daily_progress["has_activity"] is True
+    assert inserted_words == 2
+    assert duplicated_words == 1
+    assert daily_words == ["resilient", "backlog"]
+    assert "I very like English." in practice_texts
+    assert "habit, vocabulary, confidence" in practice_texts
     assert stats["learning_days"] >= 1
     assert stats["task_completion_rate"] == 0.5
     assert "word_choice" in stats["weak_points"]

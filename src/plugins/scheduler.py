@@ -42,18 +42,11 @@ def register_jobs() -> None:
         **_cron_kwargs(runtime_config.cron("scheduler.evening_baton_cron")),
     )
     scheduler.add_job(
-        daily_error_digest_job,
+        daily_summary_job,
         "cron",
-        id="daily_error_digest",
+        id="daily_summary",
         replace_existing=True,
-        **_cron_kwargs(runtime_config.cron("scheduler.daily_error_digest_cron")),
-    )
-    scheduler.add_job(
-        daily_progress_job,
-        "cron",
-        id="daily_progress",
-        replace_existing=True,
-        **_cron_kwargs(runtime_config.cron("scheduler.daily_progress_cron")),
+        **_cron_kwargs(runtime_config.cron("scheduler.daily_summary_cron")),
     )
     # Weekly report is kept as a manual action ("本周总结"/admin trigger) to avoid
     # interrupting daily execution with scheduled weekly cards.
@@ -206,6 +199,45 @@ async def daily_progress_job(target_date: date | None = None, force_run: bool = 
     except Exception:
         logger.exception("daily progress job failed")
         await container.learning_repo.finish_job_lock(job_name="daily_progress", biz_key=biz_key, status="failed")
+
+
+async def daily_summary_job(target_date: date | None = None, force_run: bool = False) -> None:
+    container = await get_or_init_container()
+    await container.runtime_config.refresh()
+    target_date = target_date or datetime.now().astimezone().date()
+    biz_key = target_date.isoformat()
+    if not await container.learning_repo.acquire_job_lock(
+        job_name="daily_summary",
+        biz_key=biz_key,
+        force=force_run,
+    ):
+        return
+    try:
+        if container.runtime_config.is_feishu_enabled():
+            for chat_id in container.runtime_config.feishu_enabled_group_ids():
+                group = await container.identity_repo.ensure_group(chat_id)
+                users = await container.identity_repo.list_group_active_users(group.id)
+                for user in users:
+                    summary_envelope = await container.report_usecase.build_daily_summary_envelope(
+                        chat_id=chat_id,
+                        open_id=user.open_id,
+                        nickname=user.nickname,
+                        target_date=target_date,
+                    )
+                    if summary_envelope is None:
+                        continue
+                    await _send_group_envelope(
+                        container=container,
+                        group_id=chat_id,
+                        envelope=summary_envelope,
+                        mention_user_id=None,
+                        job_name="daily_summary",
+                        user_id=user.id,
+                    )
+        await container.learning_repo.finish_job_lock(job_name="daily_summary", biz_key=biz_key, status="success")
+    except Exception:
+        logger.exception("daily summary job failed")
+        await container.learning_repo.finish_job_lock(job_name="daily_summary", biz_key=biz_key, status="failed")
 
 
 async def weekly_report_job(target_date: date | None = None, force_run: bool = False) -> None:

@@ -111,6 +111,22 @@ def _upgrade_sqlite_schema(connection: Any) -> None:
         "ON daily_card_snapshots (user_id, group_id, biz_date, card_type)"
     )
     connection.exec_driver_sql(
+        "CREATE TABLE IF NOT EXISTS daily_user_words ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "biz_date DATE NOT NULL, "
+        "user_id INTEGER NOT NULL, "
+        "group_id INTEGER NOT NULL, "
+        "word VARCHAR(255) NOT NULL, "
+        "created_at DATETIME, "
+        "updated_at DATETIME, "
+        "UNIQUE (biz_date, user_id, group_id, word)"
+        ")"
+    )
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_daily_user_words_user_group_biz "
+        "ON daily_user_words (user_id, group_id, biz_date)"
+    )
+    connection.exec_driver_sql(
         "CREATE INDEX IF NOT EXISTS ix_message_delivery_logs_group_user_job "
         "ON message_delivery_logs (group_id, user_id, job_name)"
     )

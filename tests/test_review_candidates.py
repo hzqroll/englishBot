@@ -286,3 +286,114 @@ async def test_daily_progress_uses_passive_conversation_activity(tmp_path):
     assert any(section.title == "今天到了哪" for section in envelope.card_document.sections)
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_daily_summary_generates_xhs_payload_and_card(tmp_path):
+    db_path = tmp_path / "daily-summary.db"
+    engine = create_engine(f"sqlite+aiosqlite:///{db_path}")
+    session_factory = create_session_factory(engine)
+    await init_db(engine)
+
+    identity_repo = IdentityRepository(session_factory)
+    learning_repo = LearningRepository(session_factory)
+    project_root = Path(__file__).resolve().parents[1]
+    curriculum_provider = StaticCurriculumProvider(
+        lexicon_path=project_root / "resources" / "lexicon" / "bec_advanced.yaml",
+        theme_path=project_root / "resources" / "themes" / "office_scenarios.yaml",
+    )
+    feedback_provider = OpenAICompatibleProvider(api_key="", base_url="", model="")
+    level_service = LevelService()
+    review_scheduler = ReviewScheduler()
+    learning_usecase = LearningUseCase(
+        identity_repo=identity_repo,
+        learning_repo=learning_repo,
+        level_service=level_service,
+        review_scheduler=review_scheduler,
+        content_provider=curriculum_provider,
+        feedback_provider=feedback_provider,
+        points_per_task=10,
+        points_per_review=6,
+    )
+    report_usecase = ReportUseCase(
+        identity_repo=identity_repo,
+        learning_repo=learning_repo,
+        summary_provider=feedback_provider,
+        level_service=level_service,
+    )
+
+    group_id = "204257012"
+    user_id = "472583006"
+    nickname = "Rainbow"
+    await learning_usecase.enroll(
+        EnrollmentContext(
+            chat_id=group_id,
+            group_name="英语学习群",
+            open_id=user_id,
+            nickname=nickname,
+        )
+    )
+    group = await identity_repo.ensure_group(group_id, "英语学习群")
+    user = await identity_repo.ensure_user(user_id, nickname)
+    today = datetime.now().astimezone().date()
+
+    await learning_usecase.build_today_lesson(chat_id=group_id, biz_date=today)
+    event = await learning_repo.create_message_event(
+        raw_event_id="daily-summary-1",
+        group_id=group.id,
+        session_id=None,
+        user_id=user.id,
+        message_text="Could we wrap up this task by Friday?",
+        event_type="group_message",
+        source_type="passive_group_message",
+        is_to_bot=False,
+        is_command=False,
+        language_guess="english",
+        analysis_status="tagged",
+        biz_date_local=today,
+    )
+    await learning_repo.create_conversation_evidences(
+        message_event_id=event.id,
+        user_id=user.id,
+        group_id=group.id,
+        biz_date=today,
+        payloads=[
+            ConversationEvidencePayload(
+                evidence_type="english_attempt",
+                evidence_score=2,
+                payload_json={"text": "Could we wrap up this task by Friday?"},
+            ),
+        ],
+    )
+    await learning_repo.upsert_daily_user_words(
+        biz_date=today,
+        user_id=user.id,
+        group_id=group.id,
+        words=["resilient", "align"],
+    )
+
+    envelope = await report_usecase.build_daily_summary_envelope(
+        chat_id=group_id,
+        open_id=user_id,
+        nickname=nickname,
+        target_date=today,
+    )
+
+    assert envelope is not None
+    assert envelope.card_type == "daily_summary"
+    assert envelope.card_document is not None
+    assert envelope.card_snapshot_id is not None
+    assert any(section.title == "小红书发布文案" for section in envelope.card_document.sections)
+
+    snapshot = await learning_repo.get_daily_learning_snapshot(
+        user_id=user.id,
+        group_id=group.id,
+        biz_date=today,
+    )
+    assert snapshot is not None
+    payload = snapshot.summary_json["xhs_payload"]
+    assert "图片生成提示词" in payload
+    assert payload["图片生成提示词"]["今日目标图"]
+    assert payload["小红书发布文案"]["标签"]
+
+    await engine.dispose()

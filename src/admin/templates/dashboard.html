@@ -41,27 +41,16 @@
       <label class="checkbox-row"><input type="checkbox" name="force_rerun" /> 强制重跑</label>
       <button type="submit">立即触发</button>
     </form>
-    <form method="post" action="/admin/triggers/daily_error_digest" class="action-card">
-      <div>
-        <p class="action-kicker">18:00</p>
-        <h4>触发错误整理</h4>
-        <p>按用户汇总当天纠错结果，补发错误整理卡。</p>
-      </div>
-      <label class="field-label">业务日期</label>
-      <input type="date" name="target_date" />
-      <label class="checkbox-row"><input type="checkbox" name="force_rerun" /> 强制重跑</label>
-      <button type="submit">发送整理卡</button>
-    </form>
-    <form method="post" action="/admin/triggers/daily_progress" class="action-card">
+    <form method="post" action="/admin/triggers/daily_summary" class="action-card">
       <div>
         <p class="action-kicker">20:00</p>
-        <h4>触发学习进度</h4>
-        <p>汇总当天学习证据和任务进度，补发个人学习卡。</p>
+        <h4>触发每日总结</h4>
+        <p>按用户生成“学习日报 + 小红书文案 + 图片提示词”卡片。</p>
       </div>
       <label class="field-label">业务日期</label>
       <input type="date" name="target_date" />
       <label class="checkbox-row"><input type="checkbox" name="force_rerun" /> 强制重跑</label>
-      <button type="submit">发送进度卡</button>
+      <button type="submit">发送总结卡</button>
     </form>
     <form method="post" action="/admin/triggers/weekly_report" class="action-card">
       <div>

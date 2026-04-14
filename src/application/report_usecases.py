@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta
+import json
+from typing import Any
 
 from src.domain.services.leveling import LearningEvidence, LevelService
 from src.domain.services.error_taxonomy import label_error_type
@@ -13,6 +15,10 @@ from src.infrastructure.settings.models import PromptsSettings
 
 
 class ReportUseCase:
+    _DAILY_SUMMARY_TOP_KEYS = {"今日目标", "今日学习总结", "练习短文", "小红书发布文案", "图片生成提示词"}
+    _DAILY_SUMMARY_XHS_KEYS = {"标题", "封面短句", "正文文案", "标签"}
+    _DAILY_SUMMARY_IMAGE_KEYS = {"今日目标图", "今日学习总结图", "练习短文图"}
+
     def __init__(
         self,
         *,
@@ -407,6 +413,186 @@ class ReportUseCase:
             card_snapshot_id=card_snapshot.id,
         )
 
+    async def build_daily_summary_envelope(
+        self,
+        *,
+        chat_id: str,
+        open_id: str,
+        nickname: str,
+        target_date: date | None = None,
+    ) -> MessageEnvelope | None:
+        group = await self._identity_repo.ensure_group(chat_id)
+        user = await self._identity_repo.ensure_user(open_id, nickname)
+
+        target_date = target_date or datetime.now().astimezone().date()
+        stats = await self._learning_repo.get_daily_progress_stats(
+            user_id=user.id,
+            group_id=group.id,
+            target_date=target_date,
+        )
+        evidence_stats = await self._learning_repo.get_daily_conversation_evidence_stats(
+            user_id=user.id,
+            group_id=group.id,
+            target_date=target_date,
+        )
+        recall_results = await self._learning_repo.evaluate_review_candidates_for_day(
+            user_id=user.id,
+            group_id=group.id,
+            biz_date=target_date,
+        )
+        practice_texts = await self._learning_repo.list_daily_practice_texts(
+            biz_date=target_date,
+            user_id=user.id,
+            group_id=group.id,
+            limit=20,
+        )
+        new_words = await self._learning_repo.list_daily_user_words(
+            biz_date=target_date,
+            user_id=user.id,
+            group_id=group.id,
+            limit=30,
+        )
+        lesson_detail = await self._learning_repo.get_today_lesson_detail(group_id=group.id, biz_date=target_date)
+        lesson_id = lesson_detail[0].id if lesson_detail is not None else None
+        target_items = (
+            await self._learning_repo.get_target_items_for_lesson(lesson_id=lesson_id)
+            if lesson_id is not None
+            else []
+        )
+        required_phrases = self._collect_required_phrases(target_items=target_items, limit=8)
+        if (
+            not practice_texts
+            and not recall_results
+            and not new_words
+            and not stats["has_activity"]
+            and evidence_stats["total_messages"] <= 0
+        ):
+            return None
+
+        lesson_title = ""
+        if lesson_detail is not None:
+            lesson, content = lesson_detail
+            lesson_title = lesson.title or content.title
+        daily_goal = self._build_system_daily_goal(lesson_title=lesson_title, required_phrases=required_phrases)
+        prompt = self._render_daily_summary_prompt(
+            daily_goal=daily_goal,
+            required_phrases=required_phrases,
+            today_dialogues=practice_texts,
+            yesterday_dialogues=recall_results,
+            new_words_today=new_words,
+        )
+        payload = await self._build_daily_summary_payload(
+            prompt=prompt,
+            daily_goal=daily_goal,
+            required_phrases=required_phrases,
+            today_dialogues=practice_texts,
+            yesterday_dialogues=recall_results,
+            new_words_today=new_words,
+        )
+        if payload is None:
+            return None
+
+        mastery_level, mastery_reason = self._determine_mastery_level(
+            stats=stats,
+            evidence_stats=evidence_stats,
+            recall_results=recall_results,
+        )
+        summary_json = {
+            "daily_goal": daily_goal,
+            "required_phrases": required_phrases,
+            "today_dialogues": practice_texts,
+            "yesterday_dialogues": recall_results,
+            "new_words_today": new_words,
+            "xhs_payload": payload,
+            "mastery_level": mastery_level,
+            "mastery_reason": mastery_reason,
+        }
+        await self._learning_repo.upsert_daily_learning_snapshot(
+            biz_date=target_date,
+            user_id=user.id,
+            group_id=group.id,
+            lesson_id=lesson_id,
+            summary_json=summary_json,
+            mastery_level=mastery_level,
+            mastery_reason=mastery_reason,
+            model_summary=payload["今日学习总结"],
+            activity_score=self._activity_score(stats),
+            evidence_score=int(evidence_stats["evidence_score"]),
+        )
+
+        xhs = payload["小红书发布文案"]
+        image_prompts = payload["图片生成提示词"]
+        plain_text = "\n".join(
+            [
+                f"{target_date.isoformat()} Daily Summary",
+                f"- Today's Goal: {payload['今日目标']}",
+                f"- Study Summary: {payload['今日学习总结']}",
+                f"- Practice Passage: {payload['练习短文']}",
+                f"- 小红书标题：{xhs['标题']}",
+                f"- 封面短句：{xhs['封面短句']}",
+                f"- 标签：{' '.join(xhs['标签'])}",
+                "- 图片提示词已直接展示在卡片中。",
+            ]
+        )
+        sections = [
+            CardSection(title="Today Goal", lines=[payload["今日目标"]]),
+            CardSection(title="Today Study Summary", lines=[payload["今日学习总结"]]),
+            CardSection(title="Practice Passage", lines=[payload["练习短文"]]),
+            CardSection(
+                title="小红书发布文案",
+                lines=[
+                    f"标题：{xhs['标题']}",
+                    f"封面短句：{xhs['封面短句']}",
+                    f"正文：{xhs['正文文案']}",
+                    f"标签：{' '.join(xhs['标签'])}",
+                ],
+            ),
+            CardSection(
+                title="Image Prompt · TODAY'S GOAL",
+                lines=[
+                    image_prompts["今日目标图"],
+                ],
+            ),
+            CardSection(
+                title="Image Prompt · TODAY'S STUDY SUMMARY",
+                lines=[
+                    image_prompts["今日学习总结图"],
+                ],
+            ),
+            CardSection(
+                title="Image Prompt · PRACTICE PASSAGE",
+                lines=[
+                    image_prompts["练习短文图"],
+                ],
+            ),
+        ]
+        document = CardDocument(
+            title="每日总结",
+            subtitle="英语学习日报 + 小红书发布素材",
+            sections=sections,
+            footer_lines=["图片提示词已完整展示在卡片中，可直接复制。"],
+            theme="green",
+            metadata={
+                "chat_id": chat_id,
+                "biz_date": target_date.isoformat(),
+                "target_open_id": open_id,
+            },
+        )
+        card_snapshot = await self._learning_repo.upsert_daily_card_snapshot(
+            biz_date=target_date,
+            user_id=user.id,
+            group_id=group.id,
+            card_type="daily_summary",
+            plain_text=plain_text,
+            card_document_json=self._document_to_json(document),
+        )
+        return MessageEnvelope(
+            plain_text=plain_text,
+            card_document=document,
+            card_type="daily_summary",
+            card_snapshot_id=card_snapshot.id,
+        )
+
     def _activity_score(self, stats: dict) -> int:
         return sum(
             int(stats.get(key, 0) or 0)
@@ -546,6 +732,217 @@ class ReportUseCase:
             return await self._summary_provider.generate_feedback(prompt)
         except Exception:
             return f"今天状态为{task_status}，掌握度判断为{self._mastery_label(mastery_level)}。"
+
+    def _collect_required_phrases(self, *, target_items: list[Any], limit: int = 8) -> list[str]:
+        phrases: list[str] = []
+        for item in target_items:
+            text = (getattr(item, "text", "") or "").strip()
+            if not text or text in phrases:
+                continue
+            phrases.append(text)
+            if len(phrases) >= limit:
+                break
+        return phrases
+
+    def _build_system_daily_goal(self, *, lesson_title: str, required_phrases: list[str]) -> str:
+        title = lesson_title.strip() or "today's communication task"
+        if required_phrases:
+            selected = ", ".join(required_phrases[:3])
+            return (
+                f"Practice the theme \"{title}\" in a real work-chat scenario, and naturally reuse "
+                f"{selected} in your own responses."
+            )
+        return f"Practice the theme \"{title}\" in a real work-chat scenario and complete one full English exchange."
+
+    def _render_daily_summary_prompt(
+        self,
+        *,
+        daily_goal: str,
+        required_phrases: list[str],
+        today_dialogues: list[str],
+        yesterday_dialogues: list[dict[str, Any]],
+        new_words_today: list[str],
+    ) -> str:
+        template = self._prompts.daily_summary_xhs_prompt
+        rendered = template
+        replacements = {
+            "daily_goal": daily_goal,
+            "required_phrases": self._format_lines_for_prompt(required_phrases, empty_text="(none)"),
+            "today_dialogues": self._format_lines_for_prompt(today_dialogues, empty_text="(none)", max_lines=16),
+            "yesterday_dialogues": self._format_recall_lines(yesterday_dialogues),
+            "new_words_today": self._format_lines_for_prompt(new_words_today, empty_text="(none)", max_lines=20),
+        }
+        for key, value in replacements.items():
+            rendered = rendered.replace(f"{{{key}}}", value)
+        return rendered
+
+    async def _build_daily_summary_payload(
+        self,
+        *,
+        prompt: str,
+        daily_goal: str,
+        required_phrases: list[str],
+        today_dialogues: list[str],
+        yesterday_dialogues: list[dict[str, Any]],
+        new_words_today: list[str],
+    ) -> dict[str, Any] | None:
+        first_raw: str = ""
+        for attempt in range(2):
+            try:
+                if attempt == 0:
+                    raw = await self._summary_provider.generate_feedback(prompt)
+                    first_raw = raw
+                else:
+                    repair_prompt = (
+                        "请将下面内容修复为严格 JSON，且只保留要求字段，不添加解释。\n\n"
+                        f"{first_raw}"
+                    )
+                    raw = await self._summary_provider.generate_feedback(repair_prompt)
+            except Exception:
+                continue
+            parsed = self._parse_daily_summary_payload(raw)
+            if parsed is not None:
+                return parsed
+        return self._build_daily_summary_fallback(
+            daily_goal=daily_goal,
+            required_phrases=required_phrases,
+            today_dialogues=today_dialogues,
+            yesterday_dialogues=yesterday_dialogues,
+            new_words_today=new_words_today,
+        )
+
+    def _parse_daily_summary_payload(self, raw: str) -> dict[str, Any] | None:
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = [line for line in text.splitlines() if not line.strip().startswith("```")]
+            text = "\n".join(lines).strip()
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if set(payload.keys()) != self._DAILY_SUMMARY_TOP_KEYS:
+            return None
+        for key in ["今日目标", "今日学习总结", "练习短文"]:
+            if not isinstance(payload.get(key), str):
+                return None
+            payload[key] = payload[key].strip()
+
+        xhs = payload.get("小红书发布文案")
+        if not isinstance(xhs, dict) or set(xhs.keys()) != self._DAILY_SUMMARY_XHS_KEYS:
+            return None
+        if not isinstance(xhs.get("标签"), list) or not all(isinstance(item, str) for item in xhs["标签"]):
+            return None
+        payload["小红书发布文案"] = {
+            "标题": str(xhs.get("标题", "")).strip(),
+            "封面短句": str(xhs.get("封面短句", "")).strip(),
+            "正文文案": str(xhs.get("正文文案", "")).strip(),
+            "标签": [item.strip() for item in xhs["标签"] if item and item.strip()],
+        }
+
+        prompts = payload.get("图片生成提示词")
+        if not isinstance(prompts, dict) or set(prompts.keys()) != self._DAILY_SUMMARY_IMAGE_KEYS:
+            return None
+        payload["图片生成提示词"] = {
+            "今日目标图": str(prompts.get("今日目标图", "")).strip(),
+            "今日学习总结图": str(prompts.get("今日学习总结图", "")).strip(),
+            "练习短文图": str(prompts.get("练习短文图", "")).strip(),
+        }
+        return payload
+
+    def _build_daily_summary_fallback(
+        self,
+        *,
+        daily_goal: str,
+        required_phrases: list[str],
+        today_dialogues: list[str],
+        yesterday_dialogues: list[dict[str, Any]],
+        new_words_today: list[str],
+    ) -> dict[str, Any]:
+        today_points = "; ".join(today_dialogues[:3]) or "I completed focused English practice tasks."
+        recall_line = "; ".join(
+            [
+                f"{item['content_text']} ({'recalled' if item['recalled_successfully'] else 'needs more practice'})"
+                for item in yesterday_dialogues[:2]
+                if item.get("content_text")
+            ]
+        ) or "No explicit recall notes were captured today."
+        phrases_line = ", ".join(required_phrases[:3]) or "core expressions from today's lesson"
+        words_line = ", ".join(new_words_today[:5]) or "no extra words logged"
+        study_summary = (
+            "Today I stayed on the main lesson goal and practiced with concrete outputs. "
+            f"My key practice lines were: {today_points}. "
+            f"I also reviewed yesterday's items: {recall_line}. "
+            f"I tried to reuse {phrases_line}, and I logged {words_line}. "
+            "Some sentences still need smoother transitions, so I will keep refining the same topic tomorrow."
+        )
+        practice_passage = (
+            "During today's practice, I focused on communicating clearly in a realistic work scenario. "
+            f"My target was to follow this goal: {daily_goal} "
+            f"I actively reused these expressions: {phrases_line}. "
+            "I wrote and spoke in short rounds, then adjusted wording to sound more natural and precise. "
+            f"I also kept an eye on yesterday's recall points: {recall_line}. "
+            f"New words from today included: {words_line}. "
+            "The next step is to keep the same context tomorrow and push for better fluency with fewer pauses."
+        )
+        xhs_body = (
+            "今天按主线完成了一轮英语练习。我把重点放在真实场景输出上，先写再改，再复述。"
+            f"今天重点复用了：{phrases_line}。"
+            f"回捞结果：{recall_line}。"
+            "整体比昨天更连贯，但衔接词和句子自然度还要继续打磨。"
+        )
+        image_prompts = {
+            "今日目标图": self._build_image_prompt(title="TODAY'S GOAL", body=daily_goal),
+            "今日学习总结图": self._build_image_prompt(title="TODAY'S STUDY SUMMARY", body=study_summary),
+            "练习短文图": self._build_image_prompt(title="PRACTICE PASSAGE", body=practice_passage),
+        }
+        return {
+            "今日目标": daily_goal,
+            "今日学习总结": study_summary,
+            "练习短文": practice_passage,
+            "小红书发布文案": {
+                "标题": "英语打卡第N天：今天稳住主线",
+                "封面短句": "今日复盘已完成",
+                "正文文案": xhs_body,
+                "标签": ["#英语学习", "#英语打卡", "#今日复盘"],
+            },
+            "图片生成提示词": image_prompts,
+        }
+
+    def _build_image_prompt(self, *, title: str, body: str) -> str:
+        content = " ".join(body.split())
+        return (
+            "premium minimalist chalkboard editorial poster for English learning, "
+            "deep green chalkboard with subtle gradient and fine chalk dust texture, "
+            "ultra clean and restrained composition, elegant and calm high-end design, "
+            "inspired by Apple keynote slides, editorial typography style, strong negative space, "
+            "portrait 4:5 ratio, strong typography hierarchy, grid-based layout, subtle asymmetry with balance, "
+            "clean chalk lettering but highly controlled, high legibility, no distortion, no clutter, "
+            "no excessive doodles, no childish illustration style, no classroom poster style, no flashy decoration, "
+            "no modern infographic style, focus on typography spacing negative space readability, "
+            "ultra high resolution, premium poster quality, Xiaohongshu cover ready, "
+            f'use subtitle \"{title}\", embed main text: \"{content}\", text must be the visual focus and clearly readable'
+        )
+
+    def _format_recall_lines(self, items: list[dict[str, Any]]) -> str:
+        lines = [
+            f"{item['content_text']} ({'recalled' if item['recalled_successfully'] else 'needs more practice'})"
+            for item in items[:10]
+            if item.get("content_text")
+        ]
+        return self._format_lines_for_prompt(lines, empty_text="(none)", max_lines=10)
+
+    def _format_lines_for_prompt(self, values: list[str], *, empty_text: str, max_lines: int = 10) -> str:
+        if not values:
+            return empty_text
+        rows = []
+        for item in values[:max_lines]:
+            clean = " ".join(str(item).split())
+            if not clean:
+                continue
+            rows.append(f"- {clean[:220]}")
+        return "\n".join(rows) if rows else empty_text
 
     def _document_to_json(self, document: CardDocument) -> dict:
         return asdict(document)

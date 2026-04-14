@@ -255,9 +255,8 @@ async def trigger_job(
     if not _current_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
     from src.plugins.scheduler import (
-        daily_error_digest_job,
         daily_friends_job,
-        daily_progress_job,
+        daily_summary_job,
         daily_push_job,
         nightly_backup_job,
         weekly_quiz_job,
@@ -266,8 +265,7 @@ async def trigger_job(
 
     job_map = {
         "daily_push": daily_push_job,
-        "daily_error_digest": daily_error_digest_job,
-        "daily_progress": daily_progress_job,
+        "daily_summary": daily_summary_job,
         "weekly_report": weekly_report_job,
         "weekly_quiz": weekly_quiz_job,
         "nightly_backup": nightly_backup_job,
@@ -283,7 +281,7 @@ async def trigger_job(
         except ValueError:
             parsed_target_date = None
     force_run = bool(force_rerun)
-    if job_name in {"daily_error_digest", "daily_progress", "weekly_report", "weekly_quiz"}:
+    if job_name in {"daily_summary", "weekly_report", "weekly_quiz"}:
         await job(target_date=parsed_target_date, force_run=force_run)
     elif job_name in {"daily_push", "daily_friends"}:
         await job(force_run=force_run)
@@ -604,12 +602,21 @@ async def feishu_card_callback(request: Request):
         biz_date = date.today()
 
     actor_open_id = open_id or "card-user"
+    card_snapshot_raw = value.get("card_snapshot_id")
+    card_snapshot_id: int | None = None
+    if isinstance(card_snapshot_raw, int):
+        card_snapshot_id = card_snapshot_raw
+    elif isinstance(card_snapshot_raw, str) and card_snapshot_raw.isdigit():
+        card_snapshot_id = int(card_snapshot_raw)
+    target_open_id = value.get("target_open_id") if isinstance(value.get("target_open_id"), str) else None
     result = await handle_feishu_card_action(
         container=container,
         action=action,
         chat_id=chat_id,
         actor_open_id=actor_open_id,
         biz_date=biz_date,
+        card_snapshot_id=card_snapshot_id,
+        target_open_id=target_open_id,
     )
     body: dict[str, typing.Any] = {
         "toast": {
@@ -792,6 +799,20 @@ async def test_progress(request: Request):
         return _err(str(exc))
 
 
+@router.get("/api/test/daily-summary")
+async def test_daily_summary(request: Request):
+    container, group_id, user_id, nickname = await _test_params(request)
+    try:
+        envelope = await container.report_usecase.build_daily_summary_envelope(
+            chat_id=group_id, open_id=user_id, nickname=nickname,
+        )
+        if envelope is None:
+            return _ok(reply="当日无学习内容，未生成日报")
+        return _ok(envelope, reply=envelope.plain_text)
+    except Exception as exc:
+        return _err(str(exc))
+
+
 @router.get("/api/test/friends")
 async def test_friends(request: Request):
     container = await _container(request)
@@ -858,9 +879,8 @@ async def cache_status(request: Request):
 async def test_trigger(job_name: str, force_rerun: str | None = Form(None)):
     """调试接口：无鉴权触发定时任务。"""
     from src.plugins.scheduler import (
-        daily_error_digest_job,
         daily_friends_job,
-        daily_progress_job,
+        daily_summary_job,
         daily_push_job,
         nightly_backup_job,
         sync_feishu_messages_job,
@@ -870,8 +890,7 @@ async def test_trigger(job_name: str, force_rerun: str | None = Form(None)):
 
     job_map = {
         "daily_push": daily_push_job,
-        "daily_error_digest": daily_error_digest_job,
-        "daily_progress": daily_progress_job,
+        "daily_summary": daily_summary_job,
         "weekly_report": weekly_report_job,
         "weekly_quiz": weekly_quiz_job,
         "nightly_backup": nightly_backup_job,
@@ -883,7 +902,7 @@ async def test_trigger(job_name: str, force_rerun: str | None = Form(None)):
         return _err(f"未知任务: {job_name}，可选: {', '.join(job_map)}")
     force_run = bool(force_rerun)
     try:
-        if job_name in {"daily_error_digest", "daily_progress", "weekly_report", "weekly_quiz", "sync_feishu_messages"}:
+        if job_name in {"daily_summary", "weekly_report", "weekly_quiz", "sync_feishu_messages"}:
             await job(target_date=None, force_run=force_run)
         elif job_name in {"daily_push", "daily_friends"}:
             await job(force_run=force_run)
@@ -951,7 +970,7 @@ async def llm_test(request: Request):
 
 _LLM_FUNCTION_NAMES = {
     "correct", "improve-translation", "feedback",
-    "analyze-dialogue", "weekly-report", "daily-progress", "friends-analysis",
+    "analyze-dialogue", "weekly-report", "daily-progress", "daily-summary", "friends-analysis",
 }
 
 _LLM_JSON_FUNCTIONS = {"correct", "analyze-dialogue", "friends-analysis"}
@@ -1172,6 +1191,40 @@ async def llm_function(request: Request, name: str, stream: bool = Query(False))
                 timeout=120.0,
             )
             return _ok({"function": name, "prompt_used": prompt, "result": result})
+
+        if name == "daily-summary":
+            required_fields = [
+                "daily_goal",
+                "required_phrases",
+                "today_dialogues",
+                "yesterday_dialogues",
+                "new_words_today",
+            ]
+            missing = [f for f in required_fields if body.get(f) is None]
+            if missing:
+                return _err(f"缺少参数: {', '.join(missing)}")
+            prompt_template = body.get("prompt_template") or prompts.daily_summary_xhs_prompt
+            prompt = (
+                prompt_template
+                .replace("{daily_goal}", str(body["daily_goal"]))
+                .replace("{required_phrases}", str(body["required_phrases"]))
+                .replace("{today_dialogues}", str(body["today_dialogues"]))
+                .replace("{yesterday_dialogues}", str(body["yesterday_dialogues"]))
+                .replace("{new_words_today}", str(body["new_words_today"]))
+            )
+            if stream:
+                return StreamingResponse(
+                    _stream_llm(provider, [{"role": "user", "content": prompt}], 0.4, 2400, name, prompt, is_json=True),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
+            data = await provider._chat_json(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                max_tokens=2400,
+                timeout=150.0,
+            )
+            return _ok({"function": name, "prompt_used": prompt, "result": data})
 
         if name == "friends-analysis":
             text = body.get("text")

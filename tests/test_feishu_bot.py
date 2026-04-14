@@ -273,13 +273,23 @@ def test_on_card_action_trigger_parses_payload_and_returns_toast(monkeypatch) ->
 
     captured: dict[str, object] = {}
 
-    def _fake_dispatch_card_action_sync(*, action: str, chat_id: str, actor_open_id: str, biz_date):
+    def _fake_dispatch_card_action_sync(
+        *,
+        action: str,
+        chat_id: str,
+        actor_open_id: str,
+        biz_date,
+        card_snapshot_id=None,
+        target_open_id=None,
+    ):
         captured.update(
             {
                 "action": action,
                 "chat_id": chat_id,
                 "actor_open_id": actor_open_id,
                 "biz_date": biz_date,
+                "card_snapshot_id": card_snapshot_id,
+                "target_open_id": target_open_id,
             }
         )
         return module.FeishuBot._build_card_action_response("success", "ok")
@@ -289,16 +299,26 @@ def test_on_card_action_trigger_parses_payload_and_returns_toast(monkeypatch) ->
 
     data = SimpleNamespace(
         event=SimpleNamespace(
-            action=SimpleNamespace(value={"action": "claim_baton", "chat_id": "oc_chat_1", "biz_date": "2026-04-13"}),
+            action=SimpleNamespace(
+                value={
+                    "action": "copy_goal_image_prompt",
+                    "chat_id": "oc_chat_1",
+                    "biz_date": "2026-04-13",
+                    "card_snapshot_id": "18",
+                    "target_open_id": "test_user",
+                }
+            ),
             operator=SimpleNamespace(open_id="u1"),
             context=SimpleNamespace(open_chat_id="oc_fallback"),
         )
     )
     response = bot._on_card_action_trigger(data)
 
-    assert captured["action"] == "claim_baton"
+    assert captured["action"] == "copy_goal_image_prompt"
     assert captured["chat_id"] == "oc_chat_1"
     assert captured["actor_open_id"] == "u1"
     assert str(captured["biz_date"]) == "2026-04-13"
+    assert captured["card_snapshot_id"] == 18
+    assert captured["target_open_id"] == "test_user"
     assert response.toast.type == "success"
     assert response.toast.content == "ok"

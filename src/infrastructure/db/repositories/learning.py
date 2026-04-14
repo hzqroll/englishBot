@@ -18,6 +18,7 @@ from src.infrastructure.db.models import (
     DailySession,
     DailyTask,
     DailyTargetItem,
+    DailyUserWord,
     Enrollment,
     ErrorOccurrence,
     ErrorPoint,
@@ -916,6 +917,10 @@ class LearningRepository:
                 )
             )
 
+    async def get_daily_card_snapshot_by_id(self, snapshot_id: int) -> DailyCardSnapshot | None:
+        async with self._session_factory() as session:
+            return await session.get(DailyCardSnapshot, snapshot_id)
+
     async def upsert_daily_card_snapshot(
         self,
         *,
@@ -1025,6 +1030,118 @@ class LearningRepository:
             await session.commit()
             await session.refresh(submission)
             return submission
+
+    async def upsert_daily_user_words(
+        self,
+        *,
+        biz_date: date,
+        user_id: int,
+        group_id: int,
+        words: list[str],
+    ) -> tuple[int, int]:
+        cleaned_words = [raw.strip() for raw in words if raw.strip()]
+        if not cleaned_words:
+            return 0, 0
+
+        async with self._session_factory() as session:
+            existing_rows = await session.scalars(
+                select(DailyUserWord.word).where(
+                    DailyUserWord.biz_date == biz_date,
+                    DailyUserWord.user_id == user_id,
+                    DailyUserWord.group_id == group_id,
+                    DailyUserWord.word.in_(cleaned_words),
+                )
+            )
+            existing = {item for item in existing_rows}
+            seen_in_request: set[str] = set()
+            inserted = 0
+            duplicated = 0
+            now = datetime.now(UTC)
+            for word in cleaned_words:
+                if word in existing or word in seen_in_request:
+                    duplicated += 1
+                    continue
+                seen_in_request.add(word)
+                session.add(
+                    DailyUserWord(
+                        biz_date=biz_date,
+                        user_id=user_id,
+                        group_id=group_id,
+                        word=word,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+                inserted += 1
+            await session.commit()
+            return inserted, duplicated
+
+    async def list_daily_user_words(
+        self,
+        *,
+        biz_date: date,
+        user_id: int,
+        group_id: int,
+        limit: int = 50,
+    ) -> list[str]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(DailyUserWord.word)
+                .where(
+                    DailyUserWord.biz_date == biz_date,
+                    DailyUserWord.user_id == user_id,
+                    DailyUserWord.group_id == group_id,
+                )
+                .order_by(DailyUserWord.id.asc())
+                .limit(limit)
+            )
+            return [item for item in rows if item]
+
+    async def list_daily_practice_texts(
+        self,
+        *,
+        biz_date: date,
+        user_id: int,
+        group_id: int,
+        limit: int = 40,
+    ) -> list[str]:
+        async with self._session_factory() as session:
+            start, end = self._local_day_bounds(biz_date)
+            messages = await session.scalars(
+                select(MessageEvent.message_text)
+                .where(
+                    MessageEvent.user_id == user_id,
+                    MessageEvent.group_id == group_id,
+                    MessageEvent.created_at >= start,
+                    MessageEvent.created_at < end,
+                    MessageEvent.is_command.is_(False),
+                )
+                .order_by(MessageEvent.id.asc())
+                .limit(limit)
+            )
+            submissions = await session.scalars(
+                select(TaskSubmission.submission_text)
+                .join(DailyTask, DailyTask.id == TaskSubmission.task_id)
+                .join(DailyLesson, DailyLesson.id == DailyTask.lesson_id)
+                .where(
+                    TaskSubmission.user_id == user_id,
+                    DailyLesson.group_id == group_id,
+                    DailyLesson.biz_date == biz_date,
+                )
+                .order_by(TaskSubmission.id.asc())
+                .limit(limit)
+            )
+            values: list[str] = []
+            for raw in [*list(messages), *list(submissions)]:
+                text = (raw or "").strip()
+                if not text:
+                    continue
+                if text in values:
+                    continue
+                values.append(text)
+                if len(values) >= limit:
+                    break
+            return values
 
     async def get_task_submissions_for_user(self, *, user_id: int, task_ids: list[int]) -> dict[int, TaskSubmission]:
         if not task_ids:

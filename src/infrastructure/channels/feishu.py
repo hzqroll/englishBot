@@ -102,6 +102,9 @@ class FeishuChannel(ChannelAdapter):
     def _render_envelope_card(self, envelope: MessageEnvelope) -> dict:
         doc = envelope.card_document
         assert doc is not None
+        if envelope.card_snapshot_id is not None:
+            doc.metadata = dict(doc.metadata or {})
+            doc.metadata["card_snapshot_id"] = str(envelope.card_snapshot_id)
         if envelope.card_type == "daily_lesson":
             return self._render_task_card(doc)
         if envelope.card_type == "daily_session":
@@ -112,6 +115,8 @@ class FeishuChannel(ChannelAdapter):
             return self._render_progress_card(doc)
         if envelope.card_type == "error_digest":
             return self._render_error_digest_card(doc)
+        if envelope.card_type == "daily_summary":
+            return self._render_daily_summary_card(doc)
         if envelope.card_type == "weekly_report":
             return self._render_weekly_report_card(doc)
         return self._render_card_document(doc)
@@ -549,6 +554,27 @@ class FeishuChannel(ChannelAdapter):
         for section in doc.sections:
             elements.append(self._section_panel(title=section.title or "", lines=section.lines, expanded=False))
         elements.append(self._actions_bar([self._button(label="查看本周文档", action="open_week_doc", doc=doc)]))
+        if doc.footer_lines:
+            elements.append({"tag": "hr"})
+            for line in doc.footer_lines:
+                elements.append(self._markdown(f"<font color='grey'>{line}</font>"))
+        return {
+            "schema": "2.0",
+            "header": self._build_header(doc),
+            "body": {
+                "direction": "vertical",
+                "padding": "12px 12px 12px 12px",
+                "elements": elements,
+            },
+        }
+
+    def _render_daily_summary_card(self, doc: CardDocument) -> dict:
+        elements: list[dict] = []
+        if doc.subtitle:
+            elements.append(self._markdown(f"<font color='grey'>{doc.subtitle}</font>"))
+        for index, section in enumerate(doc.sections):
+            expanded = index <= 1
+            elements.append(self._section_panel(title=section.title or f"区块 {index + 1}", lines=section.lines, expanded=expanded))
         if doc.footer_lines:
             elements.append({"tag": "hr"})
             for line in doc.footer_lines:

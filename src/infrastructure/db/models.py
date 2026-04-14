@@ -260,6 +260,19 @@ class TaskSubmission(Base, TimestampMixin):
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
+class DailyUserWord(Base, TimestampMixin):
+    __tablename__ = "daily_user_words"
+    __table_args__ = (
+        UniqueConstraint("biz_date", "user_id", "group_id", "word", name="uq_daily_user_words_day_user_group_word"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    biz_date: Mapped[date] = mapped_column(Date, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    word: Mapped[str] = mapped_column(String(255))
+
+
 class DailyLearningSnapshot(Base, TimestampMixin):
     __tablename__ = "daily_learning_snapshots"
     __table_args__ = (UniqueConstraint("biz_date", "user_id", "group_id", name="uq_daily_learning_snapshots_day_user_group"),)

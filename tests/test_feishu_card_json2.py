@@ -182,3 +182,35 @@ def test_session_reminder_card_has_followup_actions():
     assert action_rows
     labels = [col["elements"][0]["text"]["content"] for col in action_rows[0]["columns"]]
     assert labels == ["今晚再提醒我", "查看本周文档"]
+
+
+def test_daily_summary_card_renders_prompt_sections_inline():
+    ch = _make_channel()
+    envelope = MessageEnvelope(
+        plain_text="demo",
+        card_type="daily_summary",
+        card_snapshot_id=123,
+        card_document=CardDocument(
+            title="每日总结",
+            subtitle="英语学习日报 + 小红书发布素材",
+            metadata={"chat_id": "oc_test", "biz_date": "2026-04-13", "target_open_id": "ou_target"},
+            sections=[
+                CardSection(title="Today Goal", lines=["Use key phrases in one workplace chat."]),
+                CardSection(title="Today Study Summary", lines=["I practiced and revised my responses."]),
+                CardSection(title="Practice Passage", lines=["This is a short practice passage."]),
+                CardSection(title="Image Prompt · TODAY'S GOAL", lines=["full goal prompt"]),
+                CardSection(title="Image Prompt · TODAY'S STUDY SUMMARY", lines=["full summary prompt"]),
+                CardSection(title="Image Prompt · PRACTICE PASSAGE", lines=["full passage prompt"]),
+            ],
+        ),
+    )
+
+    card_json = ch._render_envelope_card(envelope)
+    _assert_valid_json2(card_json)
+    action_rows = [el for el in card_json["body"]["elements"] if el.get("tag") == "column_set"]
+    assert not action_rows
+    panels = [el for el in card_json["body"]["elements"] if el.get("tag") == "collapsible_panel"]
+    prompt_titles = [panel.get("header", {}).get("title", {}).get("content", "") for panel in panels]
+    assert "**Image Prompt · TODAY'S GOAL**" in prompt_titles
+    assert "**Image Prompt · TODAY'S STUDY SUMMARY**" in prompt_titles
+    assert "**Image Prompt · PRACTICE PASSAGE**" in prompt_titles
