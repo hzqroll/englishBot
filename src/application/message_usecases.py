@@ -72,6 +72,7 @@ class MessageUseCase:
         ctx: MessageCommandContext,
         *,
         stream_callback: Callable[[str], None] | None = None,
+        translation_enabled: bool = True,
     ) -> str:
         cleaned = ctx.message_text.strip()
         explicit_dialogue = extract_explicit_dialogue_analysis_text(cleaned)
@@ -146,24 +147,37 @@ class MessageUseCase:
         elif detected == LanguageType.ENGLISH:
             if stream_callback is not None:
                 correction = await self._llm_provider.correct_english_stream(
-                    cleaned, context=context, on_chunk=stream_callback,
+                    cleaned,
+                    context=context,
+                    on_chunk=stream_callback,
+                    include_translation=translation_enabled,
                 )
             else:
-                correction = await self._english_correction_provider.correct_english(cleaned, context=context)
+                correction = await self._english_correction_provider.correct_english(
+                    cleaned,
+                    context=context,
+                    include_translation=translation_enabled,
+                )
             await self._persist_error_points(event.id, user.id, group.id, correction.error_points)
             reply = self._render_english_reply(correction)
             action_type = "english_correction"
             provider = correction.provider
         else:
-            if stream_callback is not None:
-                translated_text = await self._llm_provider.translate_stream(
-                    cleaned, on_chunk=stream_callback,
-                )
+            if not translation_enabled:
+                reply = "当前群已关闭翻译功能。"
+                action_type = "chinese_translation_disabled"
+                provider = "runtime-config"
+                success = False
+            elif stream_callback is not None:
+                translated_text = await self._llm_provider.translate_stream(cleaned, on_chunk=stream_callback)
+                reply = self._render_chinese_reply(translated_text=translated_text)
+                action_type = "chinese_translation"
+                provider = "openai_compatible"
             else:
-                translated_text = await self._llm_provider.translate_stream(cleaned)
-            reply = self._render_chinese_reply(translated_text=translated_text)
-            action_type = "chinese_translation"
-            provider = "openai_compatible"
+                translated_text = await self._llm_provider.translate(cleaned)
+                reply = self._render_chinese_reply(translated_text=translated_text)
+                action_type = "chinese_translation"
+                provider = "openai_compatible"
 
         await self._learning_repo.create_interaction_result(
             event_id=event.id,

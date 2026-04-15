@@ -28,15 +28,26 @@ class LanguageToolEnglishProvider:
     async def warmup(self) -> None:
         await asyncio.to_thread(self._tool_or_none)
 
-    async def correct_english(self, text: str, context: str | None = None) -> CorrectionResult:
-        del context
+    async def correct_english(
+        self,
+        text: str,
+        context: str | None = None,
+        *,
+        include_translation: bool = True,
+    ) -> CorrectionResult:
         tool = await asyncio.to_thread(self._tool_or_none)
         if tool is None:
-            return await self._llm_provider.correct_english(text)
+            return await self._llm_provider.correct_english(
+                text,
+                context=context,
+                include_translation=include_translation,
+            )
 
         matches = await asyncio.to_thread(tool.check, text)
         corrected_text = await asyncio.to_thread(tool.correct, text)
-        zh_translation = await self._translate_to_chinese(corrected_text)
+        zh_translation = ""
+        if include_translation:
+            zh_translation = await self._translate_to_chinese(corrected_text)
         error_points = self._build_error_points(text=text, matches=matches)
         explanation = self._build_summary(error_points)
 

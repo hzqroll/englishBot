@@ -31,19 +31,25 @@ class OpenAICompatibleProvider:
         self._client: httpx.AsyncClient | None = None
 
     @retry(wait=wait_fixed(1), stop=stop_after_attempt(2), reraise=True)
-    async def correct_english(self, text: str, context: str | None = None) -> CorrectionResult:
+    async def correct_english(
+        self,
+        text: str,
+        context: str | None = None,
+        *,
+        include_translation: bool = True,
+    ) -> CorrectionResult:
         if not self._api_key or not self._base_url or not self._model:
             return CorrectionResult(
                 original_text=text,
                 corrected_text=text,
-                zh_translation=f"[mock-zh] {text}",
+                zh_translation=f"[mock-zh] {text}" if include_translation else "",
                 natural_expression=text,
                 explanation="未配置 OpenAI 兼容模型接口，当前返回本地 mock 结果。",
                 provider="openai-compatible-mock",
                 error_points=[],
             )
 
-        system_prompt = self._prompts.correction_system
+        system_prompt = self._build_correction_prompt(include_translation=include_translation)
 
         user_prompt = f"上下文：{context or '无'}\n待纠错英文：{text}"
         data = await self._chat_json(
@@ -52,7 +58,7 @@ class OpenAICompatibleProvider:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.2,
-            max_tokens=500,
+            max_tokens=500 if include_translation else 420,
         )
         return CorrectionResult(
             original_text=text,
@@ -152,27 +158,22 @@ class OpenAICompatibleProvider:
         context: str | None = None,
         *,
         on_chunk: Callable[[str], None] | None = None,
+        include_translation: bool = True,
     ) -> CorrectionResult:
         """Streaming version of correct_english with optional progress callback."""
+        del context
         if not self._api_key or not self._base_url or not self._model:
             return CorrectionResult(
                 original_text=text,
                 corrected_text=text,
-                zh_translation=f"[mock-zh] {text}",
+                zh_translation=f"[mock-zh] {text}" if include_translation else "",
                 natural_expression=text,
                 explanation="未配置 OpenAI 兼容模型接口，当前返回本地 mock 结果。",
                 provider="openai-compatible-mock",
                 error_points=[],
             )
 
-        system_prompt = (
-            "你是英语纠错助教，严格返回JSON：\n"
-            '{"corrected_text":"...","zh_translation":"...","natural_expression":"...",'
-            '"explanation":"一句话总结","error_points":['
-            '{"error_type":"tense|article|preposition|word_choice|spelling|expression|grammar|agreement",'
-            '"source_fragment":"...","correct_fragment":"...","explanation":"简短说明"}]}\n'
-            "要求：explanation和error_points[].explanation各限20字内。"
-        )
+        system_prompt = self._build_stream_correction_prompt(include_translation=include_translation)
         user_prompt = f"纠错：{text}"
 
         data = await self._chat_json_stream(
@@ -181,7 +182,7 @@ class OpenAICompatibleProvider:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.2,
-            max_tokens=400,
+            max_tokens=400 if include_translation else 320,
             on_chunk=on_chunk,
         )
         return CorrectionResult(
@@ -293,6 +294,21 @@ class OpenAICompatibleProvider:
             on_chunk=on_chunk,
         )
 
+    async def translate(self, text: str) -> str:
+        """Translate Chinese text to English using a non-streaming LLM call."""
+        if not self._api_key or not self._base_url or not self._model:
+            return f"[mock-en] {text}"
+
+        prompt = (
+            "请将下面中文翻译为自然地道的英文。只返回英文翻译结果，不要解释。\n\n"
+            f"中文：{text}"
+        )
+        return await self._chat_text(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=300,
+        )
+
     # ---- Internal streaming helpers ----
 
     async def _chat_json_stream(
@@ -377,6 +393,24 @@ class OpenAICompatibleProvider:
         if should_close:
             await client.aclose()
         return accumulated
+
+    def _build_correction_prompt(self, *, include_translation: bool) -> str:
+        if include_translation:
+            return self._prompts.correction_system
+        return self._prompts.correction_system + '\n额外要求：zh_translation 字段必须返回空字符串 ""，不要生成中文翻译。'
+
+    def _build_stream_correction_prompt(self, *, include_translation: bool) -> str:
+        prompt = (
+            "你是英语纠错助教，严格返回JSON：\n"
+            '{"corrected_text":"...","zh_translation":"...","natural_expression":"...",'
+            '"explanation":"一句话总结","error_points":['
+            '{"error_type":"tense|article|preposition|word_choice|spelling|expression|grammar|agreement",'
+            '"source_fragment":"...","correct_fragment":"...","explanation":"简短说明"}]}\n'
+            "要求：explanation和error_points[].explanation各限20字内。"
+        )
+        if include_translation:
+            return prompt
+        return prompt + '\n额外要求：zh_translation 字段必须返回空字符串 ""，不要生成中文翻译。'
 
     # ---- Non-streaming methods ----
 

@@ -10,8 +10,9 @@ from src.infrastructure.channels.feishu_bot import FeishuBot
 
 
 class _RuntimeConfigStub:
-    def __init__(self, *, enabled: bool = True) -> None:
+    def __init__(self, *, enabled: bool = True, translation_enabled: bool = True) -> None:
         self.enabled = enabled
+        self.translation_enabled = translation_enabled
         self.calls: list[str] = []
 
     def is_enabled_chat(self, group_id: str) -> bool:
@@ -20,6 +21,9 @@ class _RuntimeConfigStub:
 
     def is_feishu_enabled(self) -> bool:
         return True
+
+    def is_message_translation_enabled(self) -> bool:
+        return self.translation_enabled
 
 
 class _FakeFeishuChannel:
@@ -44,21 +48,23 @@ class _FakeFeishuChannel:
 
 
 class _ContainerStub:
-    def __init__(self, *, enabled: bool = True) -> None:
-        self.runtime_config = _RuntimeConfigStub(enabled=enabled)
+    def __init__(self, *, enabled: bool = True, translation_enabled: bool = True) -> None:
+        self.runtime_config = _RuntimeConfigStub(enabled=enabled, translation_enabled=translation_enabled)
         self.channels = {"feishu": _FakeFeishuChannel()}
         self.group_dialogue_store = SimpleNamespace(append_group_message=lambda **kw: None)
         self.at_calls: list[dict] = []
         self.passive_calls: list[dict] = []
         self.card_actions: list[tuple[str, str, str, object]] = []
 
-        async def _handle_at_message(ctx, *, stream_callback=None):
+        async def _handle_at_message(ctx, *, stream_callback=None, translation_enabled=True):
             self.at_calls.append(
                 {
                     "raw_event_id": ctx.raw_event_id,
                     "group_id": ctx.group_id,
                     "user_id": ctx.user_id,
                     "message_text": ctx.message_text,
+                    "translation_enabled": translation_enabled,
+                    "streaming": stream_callback is not None,
                 }
             )
             return "mock reply"
@@ -135,6 +141,8 @@ async def test_analysis_control_text_without_mention_routes_to_at_message(monkey
             "group_id": "oc_chat_1",
             "user_id": "u1",
             "message_text": "分析最近聊天内容",
+            "translation_enabled": True,
+            "streaming": False,
         }
     ]
     assert container.channels["feishu"].sent_texts == [("oc_chat_1", "mock reply")]
@@ -244,6 +252,39 @@ async def test_audio_message_routes_to_passive_observer(monkeypatch) -> None:
             "user_id": "u1",
             "message_text": "",
             "message_type": "audio",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passes_translation_toggle_to_at_message(monkeypatch) -> None:
+    import src.infrastructure.channels.feishu_bot as module
+
+    container = _ContainerStub(translation_enabled=False)
+
+    monkeypatch.setattr(module, "get_container", lambda: container)
+    monkeypatch.setattr(module, "FeishuChannel", _FakeFeishuChannel)
+
+    bot = _build_bot()
+
+    await bot._dispatch(
+        raw_event_id="evt-translate-off",
+        chat_id="oc_chat_1",
+        user_id="u1",
+        nickname="tester",
+        text="你好",
+        is_mention=True,
+        message_type="text",
+    )
+
+    assert container.at_calls == [
+        {
+            "raw_event_id": "evt-translate-off",
+            "group_id": "oc_chat_1",
+            "user_id": "u1",
+            "message_text": "你好",
+            "translation_enabled": False,
+            "streaming": False,
         }
     ]
 

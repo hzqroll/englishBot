@@ -50,12 +50,18 @@ class _EnglishCorrectionProviderStub:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    async def correct_english(self, text: str, context: str | None = None) -> CorrectionResult:
-        self.calls.append({"text": text, "context": context})
+    async def correct_english(
+        self,
+        text: str,
+        context: str | None = None,
+        *,
+        include_translation: bool = True,
+    ) -> CorrectionResult:
+        self.calls.append({"text": text, "context": context, "include_translation": include_translation})
         return CorrectionResult(
             original_text=text,
             corrected_text="I like English.",
-            zh_translation="ZH::I like English.",
+            zh_translation="ZH::I like English." if include_translation else "",
             natural_expression="I like English.",
             explanation="检测到 1 处可能问题：表达问题1处。",
             provider="openai_compatible",
@@ -68,6 +74,7 @@ class _LLMProviderStub:
         self.analyze_calls: list[dict] = []
         self.correct_calls: list[dict] = []
         self.translate_calls: list[dict] = []
+        self.translate_stream_calls: list[dict] = []
 
     async def analyze_dialogue(self, text: str, *, source_kind: str) -> DialogueAnalysisResult:
         self.analyze_calls.append({"text": text, "source_kind": source_kind})
@@ -86,20 +93,31 @@ class _LLMProviderStub:
     async def analyze_dialogue_stream(self, text: str, *, source_kind: str, on_chunk=None) -> DialogueAnalysisResult:
         return await self.analyze_dialogue(text, source_kind=source_kind)
 
-    async def correct_english_stream(self, text: str, context: str | None = None, *, on_chunk=None) -> CorrectionResult:
-        self.correct_calls.append({"text": text, "context": context})
+    async def correct_english_stream(
+        self,
+        text: str,
+        context: str | None = None,
+        *,
+        on_chunk=None,
+        include_translation: bool = True,
+    ) -> CorrectionResult:
+        self.correct_calls.append({"text": text, "context": context, "include_translation": include_translation})
         return CorrectionResult(
             original_text=text,
             corrected_text="I like English.",
-            zh_translation="ZH::I like English.",
+            zh_translation="ZH::I like English." if include_translation else "",
             natural_expression="I like English.",
             explanation="检测到 1 处可能问题：表达问题1处。",
             provider="openai_compatible",
             error_points=[],
         )
 
-    async def translate_stream(self, text: str, *, on_chunk=None) -> str:
+    async def translate(self, text: str) -> str:
         self.translate_calls.append({"text": text})
+        return f"EN::{text}"
+
+    async def translate_stream(self, text: str, *, on_chunk=None) -> str:
+        self.translate_stream_calls.append({"text": text})
         return f"EN::{text}"
 
 
@@ -142,6 +160,7 @@ async def test_plain_chinese_message_uses_llm_translation() -> None:
     assert reply == "🌐 EN::你好，今天过得怎么样？"
     assert english_provider.calls == []
     assert len(llm_provider.translate_calls) == 1
+    assert llm_provider.translate_stream_calls == []
     assert learning_repo.interaction_results[-1]["provider"] == "openai_compatible"
 
 
@@ -189,6 +208,34 @@ async def test_plain_english_message_without_streaming_uses_correction_provider(
 
 
 @pytest.mark.asyncio
+async def test_plain_english_message_can_disable_translation_output() -> None:
+    usecase, _, english_provider, llm_provider = _build_usecase()
+
+    reply = await usecase.handle_at_message(
+        MessageCommandContext(
+            raw_event_id="evt-2c",
+            group_id="g1",
+            group_name="group",
+            user_id="u1",
+            nickname="tester",
+            message_text="I very like English.",
+        ),
+        translation_enabled=False,
+    )
+
+    assert "✏️ I like English." in reply
+    assert "📖" not in reply
+    assert english_provider.calls == [
+        {
+            "text": "I very like English.",
+            "context": None,
+            "include_translation": False,
+        }
+    ]
+    assert llm_provider.correct_calls == []
+
+
+@pytest.mark.asyncio
 async def test_explicit_dialogue_analysis_uses_llm() -> None:
     usecase, learning_repo, english_provider, llm_provider = _build_usecase()
 
@@ -211,6 +258,31 @@ async def test_explicit_dialogue_analysis_uses_llm() -> None:
         {"text": "Alice：你好\nBob：我很好", "source_kind": "explicit_text"}
     ]
     assert learning_repo.interaction_results[-1]["action_type"] == "dialogue_analysis_explicit"
+
+
+@pytest.mark.asyncio
+async def test_plain_chinese_message_can_disable_translation() -> None:
+    usecase, learning_repo, english_provider, llm_provider = _build_usecase()
+
+    reply = await usecase.handle_at_message(
+        MessageCommandContext(
+            raw_event_id="evt-3b",
+            group_id="g1",
+            group_name="group",
+            user_id="u1",
+            nickname="tester",
+            message_text="你好，今天过得怎么样？",
+        ),
+        translation_enabled=False,
+    )
+
+    assert reply == "当前群已关闭翻译功能。"
+    assert english_provider.calls == []
+    assert llm_provider.translate_calls == []
+    assert llm_provider.translate_stream_calls == []
+    assert learning_repo.interaction_results[-1]["action_type"] == "chinese_translation_disabled"
+    assert learning_repo.interaction_results[-1]["provider"] == "runtime-config"
+    assert learning_repo.interaction_results[-1]["success"] is False
 
 
 @pytest.mark.asyncio

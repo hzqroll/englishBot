@@ -394,9 +394,7 @@ async def debug_submit(
                     parts.append("\n🔍 错误点\n" + "\n".join(lines))
                 reply = "\n".join(parts)
             else:
-                translated_text = await container.correction_provider.translate_stream(
-                    message_text,
-                )
+                translated_text = await container.correction_provider.translate(message_text)
                 reply = f"🌐 {translated_text}"
             mode = "dry_run_no_db"
             provider = _provider_label(message_text, detected)

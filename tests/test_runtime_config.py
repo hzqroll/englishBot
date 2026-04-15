@@ -17,6 +17,7 @@ class _LearningRepoStub:
     async def list_runtime_settings(self):
         return [
             SimpleNamespace(key="feishu.enabled_group_ids", value='["oc_test_group"]'),
+            SimpleNamespace(key="message.translation_enabled", value="false"),
         ]
 
 
@@ -45,6 +46,32 @@ async def test_runtime_config_handles_feishu_groups(tmp_path: Path) -> None:
     assert runtime_config.feishu_enabled_group_ids() == ["oc_test_group"]
     assert runtime_config.is_enabled_chat("oc_test_group") is True
     assert runtime_config.is_enabled_chat("oc_other_group") is False
+    assert runtime_config.is_message_translation_enabled() is False
+
+
+class _EmptyLearningRepoStub:
+    async def list_runtime_settings(self):
+        return []
+
+
+@pytest.mark.asyncio
+async def test_runtime_config_translation_defaults_to_disabled(tmp_path: Path) -> None:
+    settings = EffectiveSettings(
+        runtime=AppRuntimeSettings(),
+        static=StaticConfig(),
+        project_root=tmp_path,
+        template_dir=tmp_path,
+        static_dir=tmp_path,
+    )
+    runtime_config = RuntimeConfigService(
+        settings=settings,
+        learning_repo=_EmptyLearningRepoStub(),
+        admin_repo=_AdminRepoStub(),
+    )
+
+    await runtime_config.refresh()
+
+    assert runtime_config.is_message_translation_enabled() is False
 
 
 def test_group_identifier_helpers() -> None:

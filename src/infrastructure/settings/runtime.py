@@ -41,6 +41,9 @@ class RuntimeConfigService:
         enabled_ids = self.feishu_enabled_group_ids()
         return not enabled_ids or chat_id in enabled_ids
 
+    def is_message_translation_enabled(self) -> bool:
+        return self._get("message.translation_enabled", False)
+
     def daily_review_insert_count(self) -> int:
         return self._get("learning.daily_review_insert_count", self.settings.static.learning.daily_review_insert_count)
 
@@ -76,6 +79,7 @@ class RuntimeConfigService:
         return {
             "feishu.enabled": self.is_feishu_enabled(),
             "feishu.enabled_group_ids": self.feishu_enabled_group_ids(),
+            "message.translation_enabled": self.is_message_translation_enabled(),
             "learning.daily_review_insert_count": self.daily_review_insert_count(),
             "learning.weekly_quiz_question_count": self.weekly_quiz_question_count(),
             "learning.weekly_quiz_review_ratio": self.weekly_quiz_review_ratio(),

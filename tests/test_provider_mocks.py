@@ -19,21 +19,36 @@ async def test_openai_compatible_provider_returns_mock_without_configuration():
     result = await provider.correct_english("I very like English.")
     feedback = await provider.generate_feedback("给一条鼓励反馈")
     analysis = await provider.analyze_dialogue("Alice：你好", source_kind="explicit_text")
+    non_stream_translation = await provider.translate("你好世界")
     translation = await provider.translate_stream("你好世界")
 
     assert result.provider == "openai-compatible-mock"
     assert "mock" in result.explanation
     assert feedback
     assert "[mock-en]" in analysis.translated_dialogue
+    assert "[mock-en]" in non_stream_translation
     assert "[mock-en]" in translation
 
 
 class _FallbackLLMProvider:
-    async def correct_english(self, text: str, context: str | None = None) -> CorrectionResult:
+    def __init__(self) -> None:
+        self.correct_calls: list[dict] = []
+        self.chat_calls = 0
+
+    async def correct_english(
+        self,
+        text: str,
+        context: str | None = None,
+        *,
+        include_translation: bool = True,
+    ) -> CorrectionResult:
+        self.correct_calls.append(
+            {"text": text, "context": context, "include_translation": include_translation}
+        )
         return CorrectionResult(
             original_text=text,
             corrected_text="fallback corrected",
-            zh_translation="fallback zh",
+            zh_translation="fallback zh" if include_translation else "",
             natural_expression="fallback corrected",
             explanation="fallback explanation",
             provider="fallback-provider",
@@ -41,6 +56,7 @@ class _FallbackLLMProvider:
         )
 
     async def _chat_text(self, *, messages, temperature, max_tokens, timeout=None) -> str:
+        self.chat_calls += 1
         return "fallback zh translation"
 
 
@@ -90,6 +106,21 @@ async def test_language_tool_provider_maps_matches_into_correction_result():
     assert "fallback zh" in result.zh_translation
     assert result.error_points[0].error_type == "natural_expression"
     assert result.error_points[0].correct_fragment == "like"
+
+
+@pytest.mark.asyncio
+async def test_language_tool_provider_skips_translation_when_disabled():
+    llm_provider = _FallbackLLMProvider()
+    provider = LanguageToolEnglishProvider(
+        llm_provider=llm_provider,
+        tool_factory=lambda: _FakeLanguageTool(),
+    )
+
+    result = await provider.correct_english("I very like English.", include_translation=False)
+
+    assert result.provider == "language-tool+llm"
+    assert result.zh_translation == ""
+    assert llm_provider.chat_calls == 0
 
 
 @pytest.mark.asyncio
