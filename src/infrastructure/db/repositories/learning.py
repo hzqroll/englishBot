@@ -1097,6 +1097,32 @@ class LearningRepository:
             )
             return [item for item in rows if item]
 
+    async def list_group_daily_user_words(
+        self,
+        *,
+        biz_date: date,
+        group_id: int,
+        limit: int = 100,
+    ) -> list[str]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(DailyUserWord.word)
+                .where(
+                    DailyUserWord.biz_date == biz_date,
+                    DailyUserWord.group_id == group_id,
+                )
+                .order_by(DailyUserWord.id.asc())
+            )
+            values: list[str] = []
+            for item in rows:
+                word = (item or "").strip()
+                if not word or word in values:
+                    continue
+                values.append(word)
+                if len(values) >= limit:
+                    break
+            return values
+
     async def list_daily_practice_texts(
         self,
         *,
@@ -1137,6 +1163,45 @@ class LearningRepository:
                 if not text:
                     continue
                 if text in values:
+                    continue
+                values.append(text)
+                if len(values) >= limit:
+                    break
+            return values
+
+    async def list_group_daily_practice_texts(
+        self,
+        *,
+        biz_date: date,
+        group_id: int,
+        limit: int = 80,
+    ) -> list[str]:
+        async with self._session_factory() as session:
+            start, end = self._local_day_bounds(biz_date)
+            messages = await session.scalars(
+                select(MessageEvent.message_text)
+                .where(
+                    MessageEvent.group_id == group_id,
+                    MessageEvent.created_at >= start,
+                    MessageEvent.created_at < end,
+                    MessageEvent.is_command.is_(False),
+                )
+                .order_by(MessageEvent.id.asc())
+            )
+            submissions = await session.scalars(
+                select(TaskSubmission.submission_text)
+                .join(DailyTask, DailyTask.id == TaskSubmission.task_id)
+                .join(DailyLesson, DailyLesson.id == DailyTask.lesson_id)
+                .where(
+                    DailyLesson.group_id == group_id,
+                    DailyLesson.biz_date == biz_date,
+                )
+                .order_by(TaskSubmission.id.asc())
+            )
+            values: list[str] = []
+            for raw in [*list(messages), *list(submissions)]:
+                text = (raw or "").strip()
+                if not text or text in values:
                     continue
                 values.append(text)
                 if len(values) >= limit:

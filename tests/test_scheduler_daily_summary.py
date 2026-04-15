@@ -30,6 +30,7 @@ class _RuntimeConfigStub:
 class _LearningRepoStub:
     def __init__(self) -> None:
         self.finish_calls: list[tuple[str, str, str]] = []
+        self.lesson_detail = None
 
     async def acquire_job_lock(self, *, job_name: str, biz_key: str, force: bool = False) -> bool:
         return True
@@ -37,34 +38,36 @@ class _LearningRepoStub:
     async def finish_job_lock(self, *, job_name: str, biz_key: str, status: str) -> None:
         self.finish_calls.append((job_name, biz_key, status))
 
+    async def get_today_lesson_detail(self, *, group_id: int, biz_date: date):
+        return self.lesson_detail
+
 
 @pytest.mark.asyncio
 async def test_daily_summary_job_sends_group_cards_without_mentions(monkeypatch) -> None:
     send_calls: list[dict] = []
+    build_lesson_calls: list[tuple[str, date]] = []
+    learning_repo = _LearningRepoStub()
 
     async def _ensure_group(chat_id: str):
         return SimpleNamespace(id=7, chat_id=chat_id)
 
-    async def _list_group_active_users(group_id: int):
-        assert group_id == 7
-        return [SimpleNamespace(id=11, open_id="ou_user_1", nickname="User1")]
+    async def _build_today_lesson(*, chat_id: str, biz_date: date | None = None):
+        build_lesson_calls.append((chat_id, biz_date or date.today()))
 
-    async def _build_daily_summary_envelope(*, chat_id: str, open_id: str, nickname: str, target_date):
+    async def _build_group_daily_summary_envelope(*, chat_id: str, target_date):
         assert chat_id == "oc_test"
-        assert open_id == "ou_user_1"
-        assert nickname == "User1"
         assert target_date == date(2026, 4, 14)
         return MessageEnvelope(plain_text="summary")
 
     async def _fake_get_or_init_container():
         return SimpleNamespace(
             runtime_config=_RuntimeConfigStub(),
-            learning_repo=_LearningRepoStub(),
+            learning_repo=learning_repo,
             identity_repo=SimpleNamespace(
                 ensure_group=_ensure_group,
-                list_group_active_users=_list_group_active_users,
             ),
-            report_usecase=SimpleNamespace(build_daily_summary_envelope=_build_daily_summary_envelope),
+            learning_usecase=SimpleNamespace(build_today_lesson=_build_today_lesson),
+            report_usecase=SimpleNamespace(build_group_daily_summary_envelope=_build_group_daily_summary_envelope),
         )
 
     async def _fake_send_group_envelope(**kwargs):
@@ -76,8 +79,9 @@ async def test_daily_summary_job_sends_group_cards_without_mentions(monkeypatch)
 
     await scheduler.daily_summary_job(target_date=date(2026, 4, 14), force_run=True)
 
+    assert build_lesson_calls == [("oc_test", date(2026, 4, 14))]
     assert len(send_calls) == 1
     assert send_calls[0]["group_id"] == "oc_test"
     assert send_calls[0]["mention_user_id"] is None
     assert send_calls[0]["job_name"] == "daily_summary"
-    assert send_calls[0]["user_id"] == 11
+    assert send_calls[0]["user_id"] is None

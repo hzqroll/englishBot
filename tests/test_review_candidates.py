@@ -397,3 +397,126 @@ async def test_daily_summary_generates_xhs_payload_and_card(tmp_path):
     assert payload["小红书发布文案"]["标签"]
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_group_daily_summary_generates_single_group_card(tmp_path):
+    db_path = tmp_path / "group-daily-summary.db"
+    engine = create_engine(f"sqlite+aiosqlite:///{db_path}")
+    session_factory = create_session_factory(engine)
+    await init_db(engine)
+
+    identity_repo = IdentityRepository(session_factory)
+    learning_repo = LearningRepository(session_factory)
+    project_root = Path(__file__).resolve().parents[1]
+    curriculum_provider = StaticCurriculumProvider(
+        lexicon_path=project_root / "resources" / "lexicon" / "bec_advanced.yaml",
+        theme_path=project_root / "resources" / "themes" / "office_scenarios.yaml",
+    )
+    feedback_provider = OpenAICompatibleProvider(api_key="", base_url="", model="")
+    level_service = LevelService()
+    review_scheduler = ReviewScheduler()
+    learning_usecase = LearningUseCase(
+        identity_repo=identity_repo,
+        learning_repo=learning_repo,
+        level_service=level_service,
+        review_scheduler=review_scheduler,
+        content_provider=curriculum_provider,
+        feedback_provider=feedback_provider,
+        points_per_task=10,
+        points_per_review=6,
+    )
+    report_usecase = ReportUseCase(
+        identity_repo=identity_repo,
+        learning_repo=learning_repo,
+        summary_provider=feedback_provider,
+        level_service=level_service,
+    )
+
+    group_chat_id = "204257012"
+    today = datetime.now().astimezone().date()
+    await learning_usecase.enroll(
+        EnrollmentContext(
+            chat_id=group_chat_id,
+            group_name="英语学习群",
+            open_id="u1",
+            nickname="Alice",
+        )
+    )
+    await learning_usecase.enroll(
+        EnrollmentContext(
+            chat_id=group_chat_id,
+            group_name="英语学习群",
+            open_id="u2",
+            nickname="Bob",
+        )
+    )
+    group = await identity_repo.ensure_group(group_chat_id, "英语学习群")
+    alice = await identity_repo.ensure_user("u1", "Alice")
+    bob = await identity_repo.ensure_user("u2", "Bob")
+
+    await learning_usecase.build_today_lesson(chat_id=group_chat_id, biz_date=today)
+    await learning_repo.create_message_event(
+        raw_event_id="group-summary-1",
+        group_id=group.id,
+        session_id=None,
+        user_id=alice.id,
+        message_text="Could we reschedule the meeting to Friday afternoon?",
+        event_type="group_message",
+        source_type="passive_group_message",
+        is_to_bot=False,
+        is_command=False,
+        language_guess="english",
+        analysis_status="tagged",
+        biz_date_local=today,
+    )
+    await learning_repo.create_message_event(
+        raw_event_id="group-summary-2",
+        group_id=group.id,
+        session_id=None,
+        user_id=bob.id,
+        message_text="Friday afternoon works for me because I have a conflict this morning.",
+        event_type="group_message",
+        source_type="passive_group_message",
+        is_to_bot=False,
+        is_command=False,
+        language_guess="english",
+        analysis_status="tagged",
+        biz_date_local=today,
+    )
+    await learning_repo.upsert_daily_user_words(
+        biz_date=today,
+        user_id=alice.id,
+        group_id=group.id,
+        words=["resilient"],
+    )
+    await learning_repo.upsert_daily_user_words(
+        biz_date=today,
+        user_id=bob.id,
+        group_id=group.id,
+        words=["asymmetry"],
+    )
+
+    envelope = await report_usecase.build_group_daily_summary_envelope(
+        chat_id=group_chat_id,
+        target_date=today,
+    )
+
+    assert envelope is not None
+    assert envelope.card_type == "daily_summary"
+    assert envelope.card_document is not None
+    assert envelope.card_snapshot_id is not None
+    section_titles = [section.title for section in envelope.card_document.sections]
+    assert "Image Prompt · TODAY'S GOAL" in section_titles
+    assert "Image Prompt · TODAY'S STUDY SUMMARY" in section_titles
+    assert "Image Prompt · PRACTICE PASSAGE" in section_titles
+
+    snapshot = await learning_repo.get_daily_card_snapshot(
+        biz_date=today,
+        group_id=group.id,
+        card_type="daily_summary",
+        user_id=None,
+    )
+    assert snapshot is not None
+
+    await engine.dispose()

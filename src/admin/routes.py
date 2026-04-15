@@ -803,8 +803,9 @@ async def test_progress(request: Request):
 async def test_daily_summary(request: Request):
     container, group_id, user_id, nickname = await _test_params(request)
     try:
-        envelope = await container.report_usecase.build_daily_summary_envelope(
-            chat_id=group_id, open_id=user_id, nickname=nickname,
+        await container.learning_usecase.build_today_lesson(chat_id=group_id)
+        envelope = await container.report_usecase.build_group_daily_summary_envelope(
+            chat_id=group_id,
         )
         if envelope is None:
             return _ok(reply="当日无学习内容，未生成日报")

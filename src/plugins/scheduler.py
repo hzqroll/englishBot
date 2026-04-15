@@ -215,29 +215,46 @@ async def daily_summary_job(target_date: date | None = None, force_run: bool = F
     try:
         if container.runtime_config.is_feishu_enabled():
             for chat_id in container.runtime_config.feishu_enabled_group_ids():
-                group = await container.identity_repo.ensure_group(chat_id)
-                users = await container.identity_repo.list_group_active_users(group.id)
-                for user in users:
-                    summary_envelope = await container.report_usecase.build_daily_summary_envelope(
-                        chat_id=chat_id,
-                        open_id=user.open_id,
-                        nickname=user.nickname,
-                        target_date=target_date,
-                    )
-                    if summary_envelope is None:
-                        continue
-                    await _send_group_envelope(
-                        container=container,
-                        group_id=chat_id,
-                        envelope=summary_envelope,
-                        mention_user_id=None,
-                        job_name="daily_summary",
-                        user_id=user.id,
-                    )
+                await _ensure_daily_lesson_for_group(
+                    container=container,
+                    chat_id=chat_id,
+                    target_date=target_date,
+                )
+                summary_envelope = await container.report_usecase.build_group_daily_summary_envelope(
+                    chat_id=chat_id,
+                    target_date=target_date,
+                )
+                if summary_envelope is None:
+                    continue
+                await _send_group_envelope(
+                    container=container,
+                    group_id=chat_id,
+                    envelope=summary_envelope,
+                    mention_user_id=None,
+                    job_name="daily_summary",
+                    user_id=None,
+                )
         await container.learning_repo.finish_job_lock(job_name="daily_summary", biz_key=biz_key, status="success")
     except Exception:
         logger.exception("daily summary job failed")
         await container.learning_repo.finish_job_lock(job_name="daily_summary", biz_key=biz_key, status="failed")
+
+
+async def recover_missing_daily_lessons_for_today() -> None:
+    container = await get_or_init_container()
+    await container.runtime_config.refresh()
+    if not container.runtime_config.is_feishu_enabled():
+        return
+    target_date = datetime.now().astimezone().date()
+    for chat_id in container.runtime_config.feishu_enabled_group_ids():
+        try:
+            await _ensure_daily_lesson_for_group(
+                container=container,
+                chat_id=chat_id,
+                target_date=target_date,
+            )
+        except Exception:
+            logger.exception("recover daily lesson failed for group %s", chat_id)
 
 
 async def weekly_report_job(target_date: date | None = None, force_run: bool = False) -> None:
@@ -398,6 +415,19 @@ async def _send_group_envelope(
             provider_response="send_failed",
         )
         return False
+
+
+async def _ensure_daily_lesson_for_group(
+    *,
+    container,
+    chat_id: str,
+    target_date: date,
+) -> None:
+    group = await container.identity_repo.ensure_group(chat_id)
+    lesson_detail = await container.learning_repo.get_today_lesson_detail(group_id=group.id, biz_date=target_date)
+    if lesson_detail is not None:
+        return
+    await container.learning_usecase.build_today_lesson(chat_id=chat_id, biz_date=target_date)
 
 
 async def _run_baton_job(

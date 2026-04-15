@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import nonebot
@@ -45,10 +46,11 @@ driver = get_driver()
 
 @driver.on_startup
 async def _on_startup() -> None:
-    from src.plugins.scheduler import register_jobs
+    from src.plugins.scheduler import recover_missing_daily_lessons_for_today, register_jobs
 
     container = await ensure_container(settings)
     register_jobs()
+    asyncio.create_task(recover_missing_daily_lessons_for_today())
     logging.getLogger(__name__).info("container initialized, feishu_app_id=%s", settings.runtime.feishu_app_id)
 
     if settings.runtime.feishu_app_id and settings.static.feishu.enabled:

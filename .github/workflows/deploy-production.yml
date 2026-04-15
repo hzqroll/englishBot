@@ -24,7 +24,7 @@ jobs:
     name: Atomic Deploy
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: production
+    environment: tencent_110.40.137.2_publish
 
     steps:
       - name: Checkout

@@ -593,6 +593,123 @@ class ReportUseCase:
             card_snapshot_id=card_snapshot.id,
         )
 
+    async def build_group_daily_summary_envelope(
+        self,
+        *,
+        chat_id: str,
+        target_date: date | None = None,
+    ) -> MessageEnvelope | None:
+        group = await self._identity_repo.ensure_group(chat_id)
+        target_date = target_date or datetime.now().astimezone().date()
+        users = await self._identity_repo.list_group_active_users(group.id)
+
+        practice_texts = await self._learning_repo.list_group_daily_practice_texts(
+            biz_date=target_date,
+            group_id=group.id,
+            limit=30,
+        )
+        new_words = await self._learning_repo.list_group_daily_user_words(
+            biz_date=target_date,
+            group_id=group.id,
+            limit=40,
+        )
+        recall_results = await self._collect_group_recall_results(
+            users=users,
+            group_id=group.id,
+            biz_date=target_date,
+        )
+        lesson_detail = await self._learning_repo.get_today_lesson_detail(group_id=group.id, biz_date=target_date)
+        lesson_id = lesson_detail[0].id if lesson_detail is not None else None
+        target_items = (
+            await self._learning_repo.get_target_items_for_lesson(lesson_id=lesson_id)
+            if lesson_id is not None
+            else []
+        )
+        required_phrases = self._collect_required_phrases(target_items=target_items, limit=8)
+        if not practice_texts and not recall_results and not new_words and lesson_detail is None:
+            return None
+
+        lesson_title = ""
+        if lesson_detail is not None:
+            lesson, content = lesson_detail
+            lesson_title = lesson.title or content.title
+        daily_goal = self._build_system_daily_goal(lesson_title=lesson_title, required_phrases=required_phrases)
+        payload = await self._build_daily_summary_payload(
+            prompt=self._render_daily_summary_prompt(
+                daily_goal=daily_goal,
+                required_phrases=required_phrases,
+                today_dialogues=practice_texts,
+                yesterday_dialogues=recall_results,
+                new_words_today=new_words,
+            ),
+            daily_goal=daily_goal,
+            required_phrases=required_phrases,
+            today_dialogues=practice_texts,
+            yesterday_dialogues=recall_results,
+            new_words_today=new_words,
+        )
+        if payload is None:
+            return None
+
+        xhs = payload["小红书发布文案"]
+        image_prompts = payload["图片生成提示词"]
+        plain_text = "\n".join(
+            [
+                f"{target_date.isoformat()} Daily Summary",
+                f"- Today's Goal: {payload['今日目标']}",
+                f"- Study Summary: {payload['今日学习总结']}",
+                f"- Practice Passage: {payload['练习短文']}",
+                f"- 小红书标题：{xhs['标题']}",
+                f"- 封面短句：{xhs['封面短句']}",
+                f"- 标签：{' '.join(xhs['标签'])}",
+                "- 图片提示词已直接展示在卡片中。",
+            ]
+        )
+        document = CardDocument(
+            title="每日总结",
+            subtitle="英语学习日报 + 小红书发布素材",
+            sections=[
+                CardSection(title="Today Goal", lines=[payload["今日目标"]]),
+                CardSection(title="Today Study Summary", lines=[payload["今日学习总结"]]),
+                CardSection(title="Practice Passage", lines=[payload["练习短文"]]),
+                CardSection(
+                    title="小红书发布文案",
+                    lines=[
+                        f"标题：{xhs['标题']}",
+                        f"封面短句：{xhs['封面短句']}",
+                        f"正文：{xhs['正文文案']}",
+                        f"标签：{' '.join(xhs['标签'])}",
+                    ],
+                ),
+                CardSection(title="Image Prompt · TODAY'S GOAL", lines=[image_prompts["今日目标图"]]),
+                CardSection(
+                    title="Image Prompt · TODAY'S STUDY SUMMARY",
+                    lines=[image_prompts["今日学习总结图"]],
+                ),
+                CardSection(title="Image Prompt · PRACTICE PASSAGE", lines=[image_prompts["练习短文图"]]),
+            ],
+            footer_lines=["图片提示词已完整展示在卡片中，可直接复制。"],
+            theme="green",
+            metadata={
+                "chat_id": chat_id,
+                "biz_date": target_date.isoformat(),
+            },
+        )
+        card_snapshot = await self._learning_repo.upsert_daily_card_snapshot(
+            biz_date=target_date,
+            user_id=None,
+            group_id=group.id,
+            card_type="daily_summary",
+            plain_text=plain_text,
+            card_document_json=self._document_to_json(document),
+        )
+        return MessageEnvelope(
+            plain_text=plain_text,
+            card_document=document,
+            card_type="daily_summary",
+            card_snapshot_id=card_snapshot.id,
+        )
+
     def _activity_score(self, stats: dict) -> int:
         return sum(
             int(stats.get(key, 0) or 0)
@@ -927,11 +1044,44 @@ class ReportUseCase:
 
     def _format_recall_lines(self, items: list[dict[str, Any]]) -> str:
         lines = [
-            f"{item['content_text']} ({'recalled' if item['recalled_successfully'] else 'needs more practice'})"
+            (
+                f"{item['user_label']}: {item['content_text']} "
+                f"({'recalled' if item['recalled_successfully'] else 'needs more practice'})"
+            )
+            if item.get("user_label")
+            else f"{item['content_text']} ({'recalled' if item['recalled_successfully'] else 'needs more practice'})"
             for item in items[:10]
             if item.get("content_text")
         ]
         return self._format_lines_for_prompt(lines, empty_text="(none)", max_lines=10)
+
+    async def _collect_group_recall_results(
+        self,
+        *,
+        users: list[Any],
+        group_id: int,
+        biz_date: date,
+    ) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for user in users:
+            items = await self._learning_repo.evaluate_review_candidates_for_day(
+                user_id=user.id,
+                group_id=group_id,
+                biz_date=biz_date,
+            )
+            user_label = getattr(user, "nickname", "") or getattr(user, "open_id", "")
+            for item in items:
+                content_text = (item.get("content_text") or "").strip()
+                correct_text = (item.get("correct_text") or "").strip()
+                key = (content_text, correct_text)
+                if not content_text or key in seen:
+                    continue
+                seen.add(key)
+                results.append({**item, "user_label": user_label})
+                if len(results) >= 12:
+                    return results
+        return results
 
     def _format_lines_for_prompt(self, values: list[str], *, empty_text: str, max_lines: int = 10) -> str:
         if not values:
