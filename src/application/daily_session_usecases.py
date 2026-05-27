@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
+import re
+from typing import Any
 
 from src.domain.value_objects.messaging import CardDocument, CardSection, MessageEnvelope
 from src.infrastructure.db.repositories.identity import IdentityRepository
 from src.infrastructure.db.repositories.learning import LearningRepository
+from src.infrastructure.providers.llm_openai import OpenAICompatibleProvider
+from src.infrastructure.settings.models import PromptsSettings
 
 
 @dataclass(slots=True)
@@ -24,12 +28,16 @@ class DailySessionUseCase:
         voice_required_weekdays: tuple[int, ...] = (1, 4),
         monthly_benchmark_weekday: int = 6,
         rescue_lookback_days: int = 2,
+        llm_provider: OpenAICompatibleProvider | None = None,
+        prompts: PromptsSettings | None = None,
     ) -> None:
         self._identity_repo = identity_repo
         self._learning_repo = learning_repo
         self._voice_required_weekdays = tuple(sorted(set(voice_required_weekdays)))
         self._monthly_benchmark_weekday = monthly_benchmark_weekday
         self._rescue_lookback_days = max(rescue_lookback_days, 1)
+        self._llm_provider = llm_provider
+        self._prompts = prompts or PromptsSettings()
 
     async def ensure_daily_session(self, *, chat_id: str, biz_date: date | None = None):
         group = await self._identity_repo.ensure_group(chat_id)
@@ -245,6 +253,94 @@ class DailySessionUseCase:
             mention_user_id=target_user.id,
         )
 
+    async def build_conversation_guardian_envelope(
+        self,
+        *,
+        chat_id: str,
+        now: datetime | None = None,
+    ) -> MessageEnvelope | None:
+        local_now = now or datetime.now().astimezone()
+        if local_now.tzinfo is None:
+            local_now = local_now.replace(tzinfo=datetime.now().astimezone().tzinfo)
+        if local_now.tzinfo is None:
+            local_now = local_now.replace(tzinfo=UTC)
+        if not self._is_guardian_window(local_now):
+            return None
+
+        target_date = local_now.date()
+        try:
+            session, lesson_detail, _, _ = await self.ensure_daily_session(chat_id=chat_id, biz_date=target_date)
+        except ValueError:
+            return None
+        lesson, content = lesson_detail
+
+        summary_json = dict(session.summary_json or {})
+        guardian_state = self._load_guardian_state(summary_json)
+        since_local = datetime.combine(target_date, time(9, 0), tzinfo=local_now.tzinfo)
+        since_utc = since_local.astimezone(UTC)
+
+        if local_now.hour >= 10 and guardian_state.get("opener_sent_for_date") != target_date.isoformat():
+            has_english = await self._learning_repo.has_english_learning_message_since(
+                group_id=session.group_id,
+                since=since_utc,
+            )
+            if not has_english:
+                story_text = await self._generate_story_opener_text(
+                    lesson_title=session.title or lesson.title or content.title,
+                    lesson_scene=self._extract_lesson_scene(lesson.package_snapshot_json),
+                    required_chunks=session.required_chunks_json or [],
+                    time_window="09:00-21:00",
+                )
+                story_paragraph, opener_line = self._normalize_story_opener(
+                    story_text=story_text,
+                    lesson_title=session.title or lesson.title or content.title,
+                    required_chunks=session.required_chunks_json or [],
+                )
+                guardian_state["opener_sent_at"] = local_now.astimezone(UTC).isoformat()
+                guardian_state["opener_sent_for_date"] = target_date.isoformat()
+                summary_json["conversation_guardian"] = guardian_state
+                await self._learning_repo.update_daily_session(
+                    session_id=session.id,
+                    summary_json=summary_json,
+                )
+                return MessageEnvelope(plain_text=f"{story_paragraph}\n\n{opener_line}")
+
+        latest_message = await self._learning_repo.get_latest_group_message_since(
+            group_id=session.group_id,
+            since=since_utc,
+        )
+        if latest_message is None:
+            return None
+        latest_at = latest_message.created_at
+        if latest_at.tzinfo is None:
+            latest_at = latest_at.replace(tzinfo=UTC)
+        idle_minutes = int((local_now.astimezone(UTC) - latest_at).total_seconds() // 60)
+        if idle_minutes < 60:
+            return None
+        if guardian_state.get("last_idle_reply_for_event_id") == latest_message.id:
+            return None
+
+        followup_raw = await self._generate_idle_followup_text(
+            lesson_title=session.title or lesson.title or content.title,
+            required_chunks=session.required_chunks_json or [],
+            latest_message=latest_message.message_text,
+            idle_minutes=idle_minutes,
+        )
+        followup_line = self._normalize_idle_followup(
+            text=followup_raw,
+            lesson_title=session.title or lesson.title or content.title,
+            required_chunks=session.required_chunks_json or [],
+        )
+
+        guardian_state["last_idle_reply_for_event_id"] = latest_message.id
+        guardian_state["last_idle_reply_at"] = local_now.astimezone(UTC).isoformat()
+        summary_json["conversation_guardian"] = guardian_state
+        await self._learning_repo.update_daily_session(
+            session_id=session.id,
+            summary_json=summary_json,
+        )
+        return MessageEnvelope(plain_text=followup_line)
+
     async def claim_baton(
         self,
         *,
@@ -402,6 +498,196 @@ class DailySessionUseCase:
             status=status,
             summary_json=summary_json,
         )
+
+    def _is_guardian_window(self, now: datetime) -> bool:
+        return 9 <= now.hour < 21
+
+    def _load_guardian_state(self, summary_json: dict[str, Any]) -> dict[str, Any]:
+        raw = summary_json.get("conversation_guardian")
+        return dict(raw) if isinstance(raw, dict) else {}
+
+    async def _generate_story_opener_text(
+        self,
+        *,
+        lesson_title: str,
+        lesson_scene: str,
+        required_chunks: list[str],
+        time_window: str,
+    ) -> str:
+        prompt = self._render_story_opener_prompt(
+            lesson_title=lesson_title,
+            lesson_scene=lesson_scene,
+            required_chunks=required_chunks,
+            time_window=time_window,
+        )
+        return await self._generate_prompt_text(prompt)
+
+    async def _generate_idle_followup_text(
+        self,
+        *,
+        lesson_title: str,
+        required_chunks: list[str],
+        latest_message: str,
+        idle_minutes: int,
+    ) -> str:
+        prompt = self._render_idle_followup_prompt(
+            lesson_title=lesson_title,
+            required_chunks=required_chunks,
+            latest_message=latest_message,
+            idle_minutes=idle_minutes,
+        )
+        return await self._generate_prompt_text(prompt)
+
+    async def _generate_prompt_text(self, prompt: str) -> str:
+        if self._llm_provider is None:
+            return ""
+        try:
+            return (await self._llm_provider.generate_feedback(prompt)).strip()
+        except Exception:
+            return ""
+
+    def _render_story_opener_prompt(
+        self,
+        *,
+        lesson_title: str,
+        lesson_scene: str,
+        required_chunks: list[str],
+        time_window: str,
+    ) -> str:
+        return self._replace_prompt_vars(
+            self._prompts.dialogue_story_opener_prompt,
+            {
+                "lesson_title": lesson_title.strip() or "Today's Theme",
+                "lesson_scene": lesson_scene.strip() or "a realistic workplace conversation",
+                "required_chunks": ", ".join(required_chunks[:3]) or "none",
+                "time_window": time_window,
+            },
+        )
+
+    def _render_idle_followup_prompt(
+        self,
+        *,
+        lesson_title: str,
+        required_chunks: list[str],
+        latest_message: str,
+        idle_minutes: int,
+    ) -> str:
+        return self._replace_prompt_vars(
+            self._prompts.dialogue_idle_followup_prompt,
+            {
+                "lesson_title": lesson_title.strip() or "Today's Theme",
+                "required_chunks": ", ".join(required_chunks[:3]) or "none",
+                "latest_message": latest_message.strip() or "(empty)",
+                "idle_minutes": str(max(idle_minutes, 0)),
+            },
+        )
+
+    def _replace_prompt_vars(self, template: str, values: dict[str, str]) -> str:
+        rendered = template
+        for key, value in values.items():
+            rendered = rendered.replace(f"{{{key}}}", value)
+        return rendered
+
+    def _normalize_story_opener(
+        self,
+        *,
+        story_text: str,
+        lesson_title: str,
+        required_chunks: list[str],
+    ) -> tuple[str, str]:
+        parts = [item.strip() for item in re.split(r"\n\s*\n", story_text or "") if item.strip()]
+        story_paragraph = parts[0] if parts else ""
+        opener_line = parts[1] if len(parts) > 1 else ""
+
+        fallback_story = self._fallback_story(
+            lesson_title=lesson_title,
+            required_chunks=required_chunks,
+        )
+        fallback_opener = self._fallback_opener(
+            lesson_title=lesson_title,
+            required_chunks=required_chunks,
+        )
+
+        if not self._is_english_dominant(story_paragraph):
+            story_paragraph = fallback_story
+        if not self._is_english_dominant(opener_line):
+            opener_line = fallback_opener
+        opener_line = self._ensure_question_line(opener_line)
+        if not self._is_english_dominant(opener_line):
+            opener_line = fallback_opener
+        return story_paragraph, opener_line
+
+    def _normalize_idle_followup(
+        self,
+        *,
+        text: str,
+        lesson_title: str,
+        required_chunks: list[str],
+    ) -> str:
+        candidate = ""
+        for part in re.split(r"[.!?。！？\n\r]+", text or ""):
+            normalized = part.strip()
+            if normalized:
+                candidate = normalized
+                break
+        if not self._is_english_dominant(candidate):
+            candidate = self._fallback_idle_followup(
+                lesson_title=lesson_title,
+                required_chunks=required_chunks,
+            )
+        candidate = self._ensure_question_line(candidate)
+        if not self._is_english_dominant(candidate):
+            return self._fallback_idle_followup(
+                lesson_title=lesson_title,
+                required_chunks=required_chunks,
+            )
+        return candidate
+
+    def _extract_lesson_scene(self, package_snapshot_json: dict[str, Any] | None) -> str:
+        if not isinstance(package_snapshot_json, dict):
+            return ""
+        scene = package_snapshot_json.get("scene")
+        return str(scene).strip() if isinstance(scene, str) else ""
+
+    def _fallback_story(self, *, lesson_title: str, required_chunks: list[str]) -> str:
+        phrase = required_chunks[0] if required_chunks else "a key phrase from today's task"
+        return (
+            f"The team is preparing a quick update around {lesson_title}. "
+            f"One teammate tries to use {phrase} to explain the current situation clearly. "
+            "Another teammate asks follow-up questions to clarify timing and next actions. "
+            "They keep the tone practical and supportive so everyone can respond naturally."
+        )
+
+    def _fallback_opener(self, *, lesson_title: str, required_chunks: list[str]) -> str:
+        phrase = required_chunks[0] if required_chunks else "one key phrase from today's task"
+        return f"For {lesson_title}, how would you start the conversation using {phrase}?"
+
+    def _fallback_idle_followup(self, *, lesson_title: str, required_chunks: list[str]) -> str:
+        phrase = required_chunks[0] if required_chunks else "one key phrase from today's task"
+        return f"How would you continue this {lesson_title} conversation with {phrase}?"
+
+    def _ensure_question_line(self, text: str) -> str:
+        candidate = text.strip()
+        if not candidate:
+            return candidate
+        candidate = candidate.rstrip()
+        if candidate.endswith("?"):
+            return candidate
+        candidate = candidate.rstrip(".!;,: ")
+        return f"{candidate}?"
+
+    def _is_english_dominant(self, text: str) -> bool:
+        candidate = (text or "").strip()
+        if not candidate:
+            return False
+        total_chars = [ch for ch in candidate if not ch.isspace()]
+        if not total_chars:
+            return False
+        cjk_count = len(re.findall(r"[\u4e00-\u9fff]", candidate))
+        if cjk_count / len(total_chars) > 0.20:
+            return False
+        english_token_count = len(re.findall(r"[A-Za-z]+", candidate))
+        return english_token_count >= 3
 
     async def _pick_roles(self, *, group_id: int, previous_session) -> tuple[object | None, object | None]:
         active_users = await self._identity_repo.list_group_active_users(group_id)

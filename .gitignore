@@ -15,3 +15,5 @@ deploy/config.yaml
 .gstack/*
 .omx/*
 /.playwright-mcp/*
+.omx/
+/.omc/*

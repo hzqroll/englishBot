@@ -307,6 +307,8 @@ class FeishuBot:
                 ),
                 translation_enabled=translation_enabled,
             )
+            if reply is None:
+                return
             await channel.send_text(chat_id, reply)
             # 用户消息写入对话缓存（机器人回复不进入缓存）
             container.group_dialogue_store.append_group_message(

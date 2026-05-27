@@ -48,10 +48,11 @@ class _FakeFeishuChannel:
 
 
 class _ContainerStub:
-    def __init__(self, *, enabled: bool = True, translation_enabled: bool = True) -> None:
+    def __init__(self, *, enabled: bool = True, translation_enabled: bool = True, at_reply: str | None = "mock reply") -> None:
         self.runtime_config = _RuntimeConfigStub(enabled=enabled, translation_enabled=translation_enabled)
         self.channels = {"feishu": _FakeFeishuChannel()}
-        self.group_dialogue_store = SimpleNamespace(append_group_message=lambda **kw: None)
+        self.group_dialogue_appends: list[dict] = []
+        self.group_dialogue_store = SimpleNamespace(append_group_message=lambda **kw: self.group_dialogue_appends.append(kw))
         self.at_calls: list[dict] = []
         self.passive_calls: list[dict] = []
         self.card_actions: list[tuple[str, str, str, object]] = []
@@ -67,7 +68,7 @@ class _ContainerStub:
                     "streaming": stream_callback is not None,
                 }
             )
-            return "mock reply"
+            return at_reply
 
         self.message_usecase = SimpleNamespace(handle_at_message=_handle_at_message)
 
@@ -146,6 +147,14 @@ async def test_analysis_control_text_without_mention_routes_to_at_message(monkey
         }
     ]
     assert container.channels["feishu"].sent_texts == [("oc_chat_1", "mock reply")]
+    assert container.group_dialogue_appends == [
+        {
+            "group_id": "oc_chat_1",
+            "user_id": "u1",
+            "nickname": "tester",
+            "text": "分析最近聊天内容",
+        }
+    ]
     assert container.runtime_config.calls == ["oc_chat_1"]
 
 
@@ -287,6 +296,40 @@ async def test_dispatch_passes_translation_toggle_to_at_message(monkeypatch) -> 
             "streaming": False,
         }
     ]
+    assert container.channels["feishu"].sent_texts == [("oc_chat_1", "mock reply")]
+    assert container.group_dialogue_appends == [
+        {
+            "group_id": "oc_chat_1",
+            "user_id": "u1",
+            "nickname": "tester",
+            "text": "你好",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_skips_send_when_at_message_returns_none(monkeypatch) -> None:
+    import src.infrastructure.channels.feishu_bot as module
+
+    container = _ContainerStub(translation_enabled=False, at_reply=None)
+
+    monkeypatch.setattr(module, "get_container", lambda: container)
+    monkeypatch.setattr(module, "FeishuChannel", _FakeFeishuChannel)
+
+    bot = _build_bot()
+
+    await bot._dispatch(
+        raw_event_id="evt-silent",
+        chat_id="oc_chat_1",
+        user_id="u1",
+        nickname="tester",
+        text="你好",
+        is_mention=True,
+        message_type="text",
+    )
+
+    assert container.channels["feishu"].sent_texts == []
+    assert container.group_dialogue_appends == []
 
 
 @pytest.mark.asyncio

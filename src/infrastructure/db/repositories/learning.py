@@ -73,6 +73,7 @@ class LearningRepository:
         language_guess: str = "unknown",
         analysis_status: str = "pending",
         biz_date_local: date | None = None,
+        created_at: datetime | None = None,
     ) -> MessageEvent:
         async with self._session_factory() as session:
             existing = await session.scalar(
@@ -93,6 +94,7 @@ class LearningRepository:
                 language_guess=language_guess,
                 analysis_status=analysis_status,
                 biz_date_local=biz_date_local or datetime.now().astimezone().date(),
+                created_at=created_at or datetime.now(UTC),
             )
             session.add(message_event)
             await session.commit()
@@ -241,6 +243,43 @@ class LearningRepository:
         async with self._session_factory() as session:
             return await session.scalar(
                 select(MessageEvent).where(MessageEvent.raw_event_id == raw_event_id)
+            )
+
+    async def has_english_learning_message_since(
+        self,
+        *,
+        group_id: int,
+        since: datetime,
+    ) -> bool:
+        async with self._session_factory() as session:
+            count = await session.scalar(
+                select(func.count())
+                .select_from(MessageEvent)
+                .where(
+                    MessageEvent.group_id == group_id,
+                    MessageEvent.created_at >= since,
+                    MessageEvent.event_type.in_(("group_message", "at_message")),
+                    MessageEvent.is_command.is_(False),
+                    MessageEvent.language_guess.in_(("english", "mixed")),
+                )
+            )
+            return int(count or 0) > 0
+
+    async def get_latest_group_message_since(
+        self,
+        *,
+        group_id: int,
+        since: datetime,
+    ) -> MessageEvent | None:
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(MessageEvent)
+                .where(
+                    MessageEvent.group_id == group_id,
+                    MessageEvent.created_at >= since,
+                    MessageEvent.event_type.in_(("group_message", "at_message")),
+                )
+                .order_by(MessageEvent.created_at.desc(), MessageEvent.id.desc())
             )
 
     async def get_user_group_debug_counts(self, *, user_id: int, group_id: int) -> dict[str, int]:

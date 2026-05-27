@@ -256,6 +256,7 @@ async def trigger_job(
         return RedirectResponse("/admin/login", status_code=303)
     from src.plugins.scheduler import (
         daily_friends_job,
+        dialogue_guardian_job,
         daily_summary_job,
         daily_push_job,
         nightly_backup_job,
@@ -265,6 +266,7 @@ async def trigger_job(
 
     job_map = {
         "daily_push": daily_push_job,
+        "dialogue_guardian": dialogue_guardian_job,
         "daily_summary": daily_summary_job,
         "weekly_report": weekly_report_job,
         "weekly_quiz": weekly_quiz_job,
@@ -283,7 +285,7 @@ async def trigger_job(
     force_run = bool(force_rerun)
     if job_name in {"daily_summary", "weekly_report", "weekly_quiz"}:
         await job(target_date=parsed_target_date, force_run=force_run)
-    elif job_name in {"daily_push", "daily_friends"}:
+    elif job_name in {"daily_push", "daily_friends", "dialogue_guardian"}:
         await job(force_run=force_run)
     else:
         await job()
@@ -879,6 +881,7 @@ async def test_trigger(job_name: str, force_rerun: str | None = Form(None)):
     """调试接口：无鉴权触发定时任务。"""
     from src.plugins.scheduler import (
         daily_friends_job,
+        dialogue_guardian_job,
         daily_summary_job,
         daily_push_job,
         nightly_backup_job,
@@ -889,6 +892,7 @@ async def test_trigger(job_name: str, force_rerun: str | None = Form(None)):
 
     job_map = {
         "daily_push": daily_push_job,
+        "dialogue_guardian": dialogue_guardian_job,
         "daily_summary": daily_summary_job,
         "weekly_report": weekly_report_job,
         "weekly_quiz": weekly_quiz_job,
@@ -903,7 +907,7 @@ async def test_trigger(job_name: str, force_rerun: str | None = Form(None)):
     try:
         if job_name in {"daily_summary", "weekly_report", "weekly_quiz", "sync_feishu_messages"}:
             await job(target_date=None, force_run=force_run)
-        elif job_name in {"daily_push", "daily_friends"}:
+        elif job_name in {"daily_push", "daily_friends", "dialogue_guardian"}:
             await job(force_run=force_run)
         else:
             await job()

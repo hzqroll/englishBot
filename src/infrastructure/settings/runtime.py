@@ -62,6 +62,7 @@ class RuntimeConfigService:
     def cron(self, key: str) -> str:
         defaults = {
             "scheduler.daily_push_cron": self.settings.static.scheduler.daily_push_cron,
+            "scheduler.dialogue_guardian_cron": self.settings.static.scheduler.dialogue_guardian_cron,
             "scheduler.midday_baton_cron": self.settings.static.scheduler.midday_baton_cron,
             "scheduler.evening_baton_cron": self.settings.static.scheduler.evening_baton_cron,
             "scheduler.daily_error_digest_cron": self.settings.static.scheduler.daily_error_digest_cron,
@@ -84,6 +85,7 @@ class RuntimeConfigService:
             "learning.weekly_quiz_question_count": self.weekly_quiz_question_count(),
             "learning.weekly_quiz_review_ratio": self.weekly_quiz_review_ratio(),
             "scheduler.daily_push_cron": self.cron("scheduler.daily_push_cron"),
+            "scheduler.dialogue_guardian_cron": self.cron("scheduler.dialogue_guardian_cron"),
             "scheduler.midday_baton_cron": self.cron("scheduler.midday_baton_cron"),
             "scheduler.evening_baton_cron": self.cron("scheduler.evening_baton_cron"),
             "scheduler.daily_error_digest_cron": self.cron("scheduler.daily_error_digest_cron"),

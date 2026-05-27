@@ -28,6 +28,13 @@ def register_jobs() -> None:
         **_cron_kwargs(runtime_config.cron("scheduler.daily_push_cron")),
     )
     scheduler.add_job(
+        dialogue_guardian_job,
+        "cron",
+        id="dialogue_guardian",
+        replace_existing=True,
+        **_cron_kwargs(runtime_config.cron("scheduler.dialogue_guardian_cron")),
+    )
+    scheduler.add_job(
         midday_baton_job,
         "cron",
         id="midday_baton",
@@ -113,6 +120,47 @@ async def daily_push_job(force_run: bool = False) -> None:
     except Exception:
         logger.exception("daily push job failed")
         await container.learning_repo.finish_job_lock(job_name="daily_push", biz_key=biz_key, status="failed")
+
+
+async def dialogue_guardian_job(now: datetime | None = None, force_run: bool = False) -> None:
+    container = await get_or_init_container()
+    await container.runtime_config.refresh()
+    if not container.runtime_config.is_feishu_enabled():
+        return
+
+    current_time = now or datetime.now().astimezone()
+    biz_key = current_time.strftime("%Y-%m-%d-%H-%M")
+    if not await container.learning_repo.acquire_job_lock(
+        job_name="dialogue_guardian",
+        biz_key=biz_key,
+        force=force_run,
+    ):
+        return
+    try:
+        for chat_id in container.runtime_config.feishu_enabled_group_ids():
+            await _ensure_daily_lesson_for_group(
+                container=container,
+                chat_id=chat_id,
+                target_date=current_time.date(),
+            )
+            envelope = await container.daily_session_usecase.build_conversation_guardian_envelope(
+                chat_id=chat_id,
+                now=current_time,
+            )
+            if envelope is None:
+                continue
+            await _send_group_envelope(
+                container=container,
+                group_id=chat_id,
+                envelope=envelope,
+                mention_user_id=None,
+                job_name="dialogue_guardian",
+                user_id=None,
+            )
+        await container.learning_repo.finish_job_lock(job_name="dialogue_guardian", biz_key=biz_key, status="success")
+    except Exception:
+        logger.exception("dialogue guardian job failed")
+        await container.learning_repo.finish_job_lock(job_name="dialogue_guardian", biz_key=biz_key, status="failed")
 
 
 async def midday_baton_job(target_date: date | None = None, force_run: bool = False) -> None:

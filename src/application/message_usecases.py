@@ -73,7 +73,7 @@ class MessageUseCase:
         *,
         stream_callback: Callable[[str], None] | None = None,
         translation_enabled: bool = True,
-    ) -> str:
+    ) -> str | None:
         cleaned = ctx.message_text.strip()
         explicit_dialogue = extract_explicit_dialogue_analysis_text(cleaned)
         is_recent_dialogue_request = is_recent_chat_analysis_request(cleaned)
@@ -83,10 +83,13 @@ class MessageUseCase:
             else GroupDialogueSnapshot()
         )
         language_sample = explicit_dialogue or dialogue_snapshot.rendered_text or cleaned
+        detected = self._detect_language(language_sample)
+
+        if not translation_enabled and explicit_dialogue is None and not is_recent_dialogue_request and detected != LanguageType.ENGLISH:
+            return None
 
         group = await self._identity_repo.ensure_group(ctx.group_id, ctx.group_name)
         user = await self._identity_repo.ensure_user(ctx.user_id, ctx.nickname)
-        detected = self._detect_language(language_sample)
         active_session = await self._learning_repo.get_active_daily_session(
             group_id=group.id,
             biz_date=date.today(),
@@ -163,12 +166,7 @@ class MessageUseCase:
             action_type = "english_correction"
             provider = correction.provider
         else:
-            if not translation_enabled:
-                reply = "当前群已关闭翻译功能。"
-                action_type = "chinese_translation_disabled"
-                provider = "runtime-config"
-                success = False
-            elif stream_callback is not None:
+            if stream_callback is not None:
                 translated_text = await self._llm_provider.translate_stream(cleaned, on_chunk=stream_callback)
                 reply = self._render_chinese_reply(translated_text=translated_text)
                 action_type = "chinese_translation"

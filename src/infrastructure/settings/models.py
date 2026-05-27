@@ -37,6 +37,7 @@ class AppRuntimeSettings(BaseSettings):
 
 class SchedulerSettings(BaseModel):
     daily_push_cron: str = "0 8 * * *"
+    dialogue_guardian_cron: str = "*/10 9-20 * * *"
     midday_baton_cron: str = "30 12 * * *"
     evening_baton_cron: str = "30 18 * * *"
     daily_error_digest_cron: str = "0 18 * * *"
@@ -130,6 +131,52 @@ class PromptsSettings(BaseModel):
         " 纠错次数：{correction_count}；任务完成：{today_task_completed}/{today_task_total}；"
         " 掌握度：{mastery_label}；依据：{mastery_reason}"
     )
+    dialogue_story_opener_prompt: str = """
+You are an English conversation facilitator for a group chat.
+
+Task:
+Write a short scenario story based on today's learning theme, then provide one opening line that invites people to continue the dialogue.
+
+Input:
+- Theme title: {lesson_title}
+- Scene context: {lesson_scene}
+- Must-reuse phrases: {required_chunks}
+- Current time window: {time_window}
+
+Output format (plain text only, no markdown):
+- Paragraph 1: A complete mini story in 4-6 sentences, vivid but realistic, easy for B1-B2 learners.
+- Paragraph 2: Exactly one opening line that someone can directly reply to in chat.
+
+Hard rules:
+- English only.
+- Keep it natural and conversational, not textbook style.
+- Reuse 1-2 must-reuse phrases naturally.
+- End Paragraph 2 with a question mark so the dialogue can continue.
+- No bullet points, no numbering, no labels.
+""".strip()
+    dialogue_idle_followup_prompt: str = """
+You are an English conversation facilitator in a group chat.
+
+Task:
+Continue the conversation after silence, based on the latest group message.
+
+Input:
+- Theme title: {lesson_title}
+- Must-reuse phrases: {required_chunks}
+- Latest message: {latest_message}
+- Silence duration: {idle_minutes} minutes
+
+Output format (plain text only):
+- Exactly one sentence.
+- It must be easy to reply to and should move the conversation forward.
+
+Hard rules:
+- English only.
+- Natural tone, concise, no explanation.
+- Prefer an open-ended follow-up style.
+- If possible, include one must-reuse phrase naturally.
+- Do not repeat the latest message verbatim.
+""".strip()
     daily_summary_xhs_prompt: str = """
 你是一名英语学习陪练总结助手，同时也是小红书学习内容策划助手（小红书内容主要是为了记录学习状态）。请根据用户当天的学习输入，生成一份“英语学习日报 + 小红书可发布文案 + 图片生成提示词”。
 

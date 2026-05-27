@@ -18,6 +18,7 @@ class _LearningRepoStub:
         return [
             SimpleNamespace(key="feishu.enabled_group_ids", value='["oc_test_group"]'),
             SimpleNamespace(key="message.translation_enabled", value="false"),
+            SimpleNamespace(key="scheduler.dialogue_guardian_cron", value='"*/5 9-20 * * *"'),
         ]
 
 
@@ -47,6 +48,7 @@ async def test_runtime_config_handles_feishu_groups(tmp_path: Path) -> None:
     assert runtime_config.is_enabled_chat("oc_test_group") is True
     assert runtime_config.is_enabled_chat("oc_other_group") is False
     assert runtime_config.is_message_translation_enabled() is False
+    assert runtime_config.cron("scheduler.dialogue_guardian_cron") == "*/5 9-20 * * *"
 
 
 class _EmptyLearningRepoStub:
@@ -72,6 +74,7 @@ async def test_runtime_config_translation_defaults_to_disabled(tmp_path: Path) -
     await runtime_config.refresh()
 
     assert runtime_config.is_message_translation_enabled() is False
+    assert runtime_config.cron("scheduler.dialogue_guardian_cron") == "*/10 9-20 * * *"
 
 
 def test_group_identifier_helpers() -> None:

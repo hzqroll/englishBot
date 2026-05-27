@@ -276,13 +276,12 @@ async def test_plain_chinese_message_can_disable_translation() -> None:
         translation_enabled=False,
     )
 
-    assert reply == "当前群已关闭翻译功能。"
+    assert reply is None
     assert english_provider.calls == []
     assert llm_provider.translate_calls == []
     assert llm_provider.translate_stream_calls == []
-    assert learning_repo.interaction_results[-1]["action_type"] == "chinese_translation_disabled"
-    assert learning_repo.interaction_results[-1]["provider"] == "runtime-config"
-    assert learning_repo.interaction_results[-1]["success"] is False
+    assert learning_repo.interaction_results == []
+    assert not hasattr(learning_repo, "message_event")
 
 
 @pytest.mark.asyncio

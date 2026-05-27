@@ -112,6 +112,8 @@ async def build_container(settings: EffectiveSettings) -> ServiceContainer:
         voice_required_weekdays=tuple(settings.static.learning.voice_required_weekdays),
         monthly_benchmark_weekday=settings.static.learning.monthly_benchmark_weekday,
         rescue_lookback_days=settings.static.learning.rescue_lookback_days,
+        llm_provider=correction_provider,
+        prompts=settings.static.prompts,
     )
     message_usecase = MessageUseCase(
         identity_repo=identity_repo,
